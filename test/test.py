@@ -1,40 +1,49 @@
-# SPDX-FileCopyrightText: © 2024 Tiny Tapeout
-# SPDX-License-Identifier: Apache-2.0
-
 import cocotb
 from cocotb.clock import Clock
-from cocotb.triggers import ClockCycles
-
+from cocotb.triggers import ClockCycles, RisingEdge
 
 @cocotb.test()
-async def test_project(dut):
-    dut._log.info("Start")
+async def test_dino7(dut):
+    dut._log.info("Starting Dino-7 Test")
 
-    # Set the clock period to 10 us (100 KHz)
-    clock = Clock(dut.clk, 10, unit="us")
-    cocotb.start_soon(clock.start())
-
-    # Reset
-    dut._log.info("Reset")
+    # Set initial states
     dut.ena.value = 1
     dut.ui_in.value = 0
     dut.uio_in.value = 0
+
+    # Create a 25Mhz clock (40ns period)
+    clock = Clock(dut.clk, 40, units="ns")
+    cocotb.start_soon(clock.start())
+
+    dut._log.info("Applying hard reset...")
     dut.rst_n.value = 0
     await ClockCycles(dut.clk, 10)
     dut.rst_n.value = 1
+    await ClockCycles(dut.clk, 5)
 
-    dut._log.info("Test project behavior")
+    dut._log.info("Checking IDLE state (Score should be 0 = 0x3F)...")
+    # Score 0 on 7-seg is 0111111 in binary -> 0x3F
+    assert dut.uo_out.value == 0x3F, f"Expected 0x3F, got {hex(dut.uo_out.value)}"
 
-    # Set the input values you want to test
-    dut.ui_in.value = 20
-    dut.uio_in.value = 30
+    dut._log.info("Simulating jump to start game...")
+    dut.ui_in.value = 1  # ui_in[0] high (Jump button)
+    await ClockCycles(dut.clk, 2)
+    dut.ui_in.value = 0
 
-    # Wait for one clock cycle to see the output values
-    await ClockCycles(dut.clk, 1)
+    dut._log.info("Waiting for some frames (fast sim)...")
+    await ClockCycles(dut.clk, 100) 
 
-    # The following assersion is just an example of how to check the output values.
-    # Change it to match the actual expected output of your module:
-    assert dut.uo_out.value == 50
+    # In RUN state (or JUMP), at least ground (d=bit 3) should be on
+    # Check if bit 3 (ground) is 1. We use integer masking
+    ground_on = (dut.uo_out.value.integer & (1 << 3)) != 0
+    assert ground_on, "Ground segment (d) should be on during gameplay"
 
-    # Keep testing the module by changing the input values, waiting for
-    # one or more clock cycles, and asserting the expected output values.
+    dut._log.info("Simulating game reset...")
+    dut.ui_in.value = 2  # ui_in[1] high (Reset game)
+    await ClockCycles(dut.clk, 2)
+    dut.ui_in.value = 0
+    await ClockCycles(dut.clk, 15)
+
+    assert dut.uo_out.value == 0x3F, "Score should reset back to 0"
+    
+    dut._log.info("Test passed successfully!")
