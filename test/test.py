@@ -1,103 +1,215 @@
 import cocotb
 from cocotb.clock import Clock
-from cocotb.triggers import ClockCycles, RisingEdge, Timer
+from cocotb.triggers import ClockCycles, RisingEdge
 
-@cocotb.test()
-async def test_dino7_full_game(dut):
-    dut._log.info("=== Starting Dino-7 Full Silicon Verification Test ===")
+SEG_A  = 1 << 0
+SEG_B  = 1 << 1
+SEG_C  = 1 << 2
+SEG_D  = 1 << 3
+SEG_E  = 1 << 4
+SEG_F  = 1 << 5
+SEG_G  = 1 << 6
+SEG_DP = 1 << 7
 
-    # Set initial states
+IDLE_ZERO_WITH_DP = 0xBF
+ALL_ON = 0xFF
+
+
+def uo(dut):
+    return dut.uo_out.value.integer
+
+
+def has_bit(value, bitmask):
+    return (value & bitmask) != 0
+
+
+def log_state(dut, tag="STATE"):
+    value = uo(dut)
+    dut._log.info(
+        f"[{tag}] uo_out=0x{value:02X} "
+        f"(dp={int(has_bit(value, SEG_DP))} "
+        f"a={int(has_bit(value, SEG_A))} b={int(has_bit(value, SEG_B))} "
+        f"c={int(has_bit(value, SEG_C))} d={int(has_bit(value, SEG_D))} "
+        f"e={int(has_bit(value, SEG_E))} f={int(has_bit(value, SEG_F))} "
+        f"g={int(has_bit(value, SEG_G))})"
+    )
+
+
+async def pulse_jump(dut, cycles=1):
+    current = dut.ui_in.value.integer
+    dut.ui_in.value = current | 0x01
+    await ClockCycles(dut.clk, cycles)
+    dut.ui_in.value = current & ~0x01
+
+
+async def pulse_game_reset(dut, cycles=2):
+    current = dut.ui_in.value.integer
+    dut.ui_in.value = current | 0x02
+    await ClockCycles(dut.clk, cycles)
+    dut.ui_in.value = current & ~0x02
+
+
+async def hard_reset(dut):
+    dut._log.info("[SETUP] Applying hard reset")
+    dut.rst_n.value = 0
     dut.ena.value = 1
     dut.ui_in.value = 0
     dut.uio_in.value = 0
-
-    # Create a 25Mhz clock (40ns period)
-    clock = Clock(dut.clk, 40, units="ns")
-    cocotb.start_soon(clock.start())
-
-    dut._log.info("[1] Applying hard reset...")
-    dut.rst_n.value = 0
     await ClockCycles(dut.clk, 10)
     dut.rst_n.value = 1
     await ClockCycles(dut.clk, 5)
+    log_state(dut, "AFTER_HARD_RESET")
 
-    dut._log.info("[2] Checking IDLE state...")
-    # Score 0 on 7-seg is 0111111 in binary -> 0x3F. DP is on (0x80) -> 0xBF
-    assert dut.uo_out.value == 0xBF, f"Expected IDLE output 0xBF, got {hex(dut.uo_out.value)}"
 
-    # Set difficulty to Normal (00) and simulate jump to start game
-    dut._log.info("[3] Starting Game (Normal Difficulty)...")
-    dut.ui_in.value = 1  # ui_in[0] high (Jump button)
+async def wait_for_any_change(dut, max_cycles, label):
+    start = uo(dut)
+    for i in range(max_cycles):
+        await RisingEdge(dut.clk)
+        if uo(dut) != start:
+            dut._log.info(
+                f"[PASS] {label}: output changed after {i+1} cycles "
+                f"(0x{start:02X} -> 0x{uo(dut):02X})"
+            )
+            return i + 1
+    raise AssertionError(
+        f"[FAIL] {label}: no output change observed within {max_cycles} cycles"
+    )
+
+
+async def start_game(dut):
+    dut._log.info("[STEP] Starting game with jump pulse")
+    await pulse_jump(dut, cycles=2)
     await ClockCycles(dut.clk, 2)
-    dut.ui_in.value = 0
+    log_state(dut, "AFTER_START")
 
-    # Wait for the player to enter S_RUN
-    await ClockCycles(dut.clk, 5)
-    ground_on = (dut.uo_out.value.integer & (1 << 3)) != 0
-    assert ground_on, "Ground segment (d) should be on during gameplay"
+    val = uo(dut)
+    assert has_bit(val, SEG_D), (
+        f"[FAIL] Game did not enter gameplay display. "
+        f"Ground segment d is off: uo_out=0x{val:02X}"
+    )
+    dut._log.info("[PASS] Game started and ground segment is on")
 
-    dut._log.info("[4] Auto-Bot: Playing the game to score points...")
-    score_achieved = 0
-    
-    # Let the bot play until it scores 3 points
-    # Max loop cycles to prevent infinite loop if game hangs
-    max_cycles = 50000 
-    cycles = 0
 
-    while score_achieved < 3 and cycles < max_cycles:
+async def wait_for_hit(dut, timeout_cycles=500):
+    dut._log.info(f"[STEP] Waiting for collision / HIT state (timeout {timeout_cycles} cycles)")
+    for i in range(timeout_cycles):
         await RisingEdge(dut.clk)
-        cycles += 1
-        
-        out_val = dut.uo_out.value.integer
-        
-        # Read the game state from the 7-segment output
-        obs_mid = (out_val & (1 << 6)) != 0   # Obstacle in mid position
-        obs_close = (out_val & (1 << 5)) != 0 # Obstacle in close position
-        player_jumping = (out_val & (1 << 1)) != 0 # Player is jumping
-        cooldown = (out_val & (1 << 7)) != 0  # Cooldown active
-        
-        # Bot Logic: Jump if obstacle is close and we are not on cooldown/jumping
-        if obs_close and not player_jumping and not cooldown:
-            dut.ui_in.value = 1
-            await ClockCycles(dut.clk, 1)
-            dut.ui_in.value = 0
-            dut._log.info(f"Bot jumped at cycle {cycles}!")
-            
-            # Wait until jump resolves and check if score goes up
-            # We assume a successful jump means we survived
-            await ClockCycles(dut.clk, 50) 
-            score_achieved += 1
-            dut._log.info(f"Bot scored! Current score approx: {score_achieved}")
+        val = uo(dut)
+        if val == ALL_ON:
+            dut._log.info(f"[PASS] HIT detected after {i+1} cycles (uo_out=0xFF)")
+            return
+    raise AssertionError("[FAIL] No HIT state detected within timeout")
 
-    assert score_achieved >= 3, "Bot failed to score 3 points"
 
-    dut._log.info("[5] Forcing Game Over...")
-    # Stop jumping and let the next obstacle hit the player
-    hit_detected = False
-    for _ in range(5000):
+async def wait_for_score_screen(dut, timeout_cycles=300):
+    dut._log.info(f"[STEP] Waiting for SCORE screen after HIT (timeout {timeout_cycles} cycles)")
+    seen_non_ff = False
+    for i in range(timeout_cycles):
         await RisingEdge(dut.clk)
-        if dut.uo_out.value == 0xFF:
-            hit_detected = True
+        val = uo(dut)
+        if val != ALL_ON and not has_bit(val, SEG_D):
+            dut._log.info(
+                f"[PASS] SCORE-like screen detected after {i+1} cycles "
+                f"(uo_out=0x{val:02X})"
+            )
+            seen_non_ff = True
             break
-            
-    assert hit_detected, "Player was never hit! S_HIT state (0xFF) not reached."
-    dut._log.info("Collision detected successfully!")
+    if not seen_non_ff:
+        raise AssertionError("[FAIL] Score screen not reached after HIT")
 
-    # Wait for blink timer to finish (S_HIT -> S_SCORE)
-    await ClockCycles(dut.clk, 100)
-    
-    dut._log.info("[6] Verifying Hardware Difficulty Change...")
-    dut.ui_in.value = 2 # Reset the game (ui_in[1] = 1)
-    await ClockCycles(dut.clk, 2)
-    dut.ui_in.value = 0b00001100 # Set Insane difficulty (ui_in[3:2] = 11)
-    
-    # The internal speed registers should now be configured much faster
-    dut._log.info("Difficulty registers updated. Restarting game...")
-    dut.ui_in.value = 0b00001101 # Keep Insane difficulty + Jump button
-    await ClockCycles(dut.clk, 2)
-    dut.ui_in.value = 0b00001100 # Release jump
 
-    # Run for a bit to ensure it doesn't crash on Insane mode
-    await ClockCycles(dut.clk, 200)
+async def wait_for_dp_toggle_on_score(dut, timeout_cycles=300):
+    dut._log.info("[STEP] Checking score/max-score alternation using decimal point")
+    seen_dp_0 = False
+    seen_dp_1 = False
 
-    dut._log.info("=== All Full Silicon Verification tests passed! ===")
+    for i in range(timeout_cycles):
+        await RisingEdge(dut.clk)
+        val = uo(dut)
+        if val == ALL_ON:
+            continue
+        if has_bit(val, SEG_DP):
+            seen_dp_1 = True
+        else:
+            seen_dp_0 = True
+
+        if seen_dp_0 and seen_dp_1:
+            dut._log.info(
+                f"[PASS] Decimal point toggles on score screen "
+                f"(observed both DP=0 and DP=1 within {i+1} cycles)"
+            )
+            return
+
+    raise AssertionError("[FAIL] Score/max-score alternation not observed")
+
+
+async def measure_first_motion_time(dut, difficulty_bits, label):
+    dut._log.info(f"[STEP] Measuring first obstacle motion for difficulty {label}")
+    dut.ui_in.value = (difficulty_bits << 2)
+    await pulse_game_reset(dut, cycles=2)
+    await ClockCycles(dut.clk, 10)
+
+    val = uo(dut)
+    assert val == IDLE_ZERO_WITH_DP, (
+        f"[FAIL] {label}: expected idle screen 0x{IDLE_ZERO_WITH_DP:02X}, got 0x{val:02X}"
+    )
+
+    await start_game(dut)
+    cycles = await wait_for_any_change(dut, 200, f"{label} first motion")
+    log_state(dut, f"{label}_FIRST_MOTION")
+    return cycles
+
+
+@cocotb.test()
+async def test_dino7_full(dut):
+    dut._log.info("========== DINO-7 FULL TEST START ==========")
+
+    clock = Clock(dut.clk, 40, units="ns")
+    cocotb.start_soon(clock.start())
+
+    await hard_reset(dut)
+
+    dut._log.info("[CHECK] Verifying idle screen after power-up")
+    val = uo(dut)
+    assert val == IDLE_ZERO_WITH_DP, (
+        f"[FAIL] Idle screen mismatch after reset: expected 0x{IDLE_ZERO_WITH_DP:02X}, got 0x{val:02X}"
+    )
+    dut._log.info("[PASS] Idle screen is correct (high score 0 with DP on)")
+
+    await start_game(dut)
+
+    dut._log.info("[CHECK] Waiting for gameplay animation / obstacle motion")
+    await wait_for_any_change(dut, 120, "gameplay motion")
+
+    await wait_for_hit(dut, timeout_cycles=500)
+    log_state(dut, "AT_HIT")
+
+    await wait_for_score_screen(dut, timeout_cycles=300)
+    log_state(dut, "AT_SCORE_SCREEN")
+
+    await wait_for_dp_toggle_on_score(dut, timeout_cycles=300)
+
+    dut._log.info("[CHECK] Testing in-game reset button")
+    await pulse_game_reset(dut, cycles=2)
+    await ClockCycles(dut.clk, 15)
+    val = uo(dut)
+    log_state(dut, "AFTER_GAME_RESET")
+    assert val == IDLE_ZERO_WITH_DP, (
+        f"[FAIL] Game reset did not return to idle screen: got 0x{val:02X}"
+    )
+    dut._log.info("[PASS] Game reset returns to idle screen correctly")
+
+    dut._log.info("[CHECK] Comparing difficulty modes")
+    normal_cycles = await measure_first_motion_time(dut, difficulty_bits=0b00, label="NORMAL")
+    insane_cycles = await measure_first_motion_time(dut, difficulty_bits=0b11, label="INSANE")
+
+    dut._log.info(
+        f"[INFO] First motion timing: NORMAL={normal_cycles} cycles, INSANE={insane_cycles} cycles"
+    )
+    assert insane_cycles < normal_cycles, (
+        f"[FAIL] Difficulty selector ineffective: INSANE ({insane_cycles}) "
+        f"is not faster than NORMAL ({normal_cycles})"
+    )
+    dut._log.info("[PASS] Difficulty selector changes game speed")
+
+    dut._log.info("========== DINO-7 FULL TEST PASS ==========")
