@@ -54,6 +54,13 @@ module tt_um_dino7 (
                 2'b10: begin init_base_speed = 24'd6;  init_speed_step = 24'd1; end
                 default: begin init_base_speed = 24'd4; init_speed_step = 24'd1; end
             endcase
+        `elsif TT_TEST_FAST
+            case (difficulty)
+                2'b00: begin init_base_speed = 24'd10; init_speed_step = 24'd2; end
+                2'b01: begin init_base_speed = 24'd8;  init_speed_step = 24'd2; end
+                2'b10: begin init_base_speed = 24'd6;  init_speed_step = 24'd1; end
+                default: begin init_base_speed = 24'd4; init_speed_step = 24'd1; end
+            endcase
         `else
             case (difficulty)
                 2'b00: begin init_base_speed = 24'd6_250_000; init_speed_step = 24'd1_000_000; end
@@ -95,12 +102,10 @@ module tt_um_dino7 (
         end else begin
             clk_div <= clk_div + 1;
 
-            // Start from idle immediately
             if (state == S_IDLE && jump_btn) begin
                 state <= S_RUN;
             end
 
-            // Jump capture for responsiveness
             if (state == S_RUN && jump_btn && cooldown_timer == 0) begin
                 state <= S_JUMP;
                 jump_timer <= 3;
@@ -122,7 +127,8 @@ module tt_um_dino7 (
                         if (obs_g && state == S_RUN) begin
                             state <= S_HIT;
                             blink_timer <= 5;
-                            if (score > max_score) max_score <= score;
+                            if (score > max_score)
+                                max_score <= score;
                         end else begin
                             if (obs_f && state == S_JUMP) begin
                                 if (score < 9)
