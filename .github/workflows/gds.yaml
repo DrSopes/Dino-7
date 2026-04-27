@@ -37,11 +37,26 @@ jobs:
       - name: GL test
         uses: TinyTapeout/tt-gds-action/gl_test@ttgf26a
 
+  gl_test_extended:
+    needs: gds
+    runs-on: ubuntu-24.04
+    steps:
+      - name: checkout repo
+        uses: actions/checkout@v6
+        with:
+          submodules: recursive
+
+      - name: GL extended test
+        uses: TinyTapeout/tt-gds-action/gl_test@ttgf26a
+        env:
+          GL_EXTENDED: "1"
+          GL_TIMEOUT_SCALE: "500"
+
   viewer:
     needs: gds
     runs-on: ubuntu-24.04
     permissions:
-      pages: write      # to deploy to Pages
-      id-token: write   # to verify the deployment originates from an appropriate source
+      pages: write
+      id-token: write
     steps:
       - uses: TinyTapeout/tt-gds-action/viewer@ttgf26a
