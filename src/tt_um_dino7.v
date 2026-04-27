@@ -14,16 +14,19 @@ module tt_um_dino7 (
     assign uio_out = 8'b0;
     assign uio_oe  = 8'b0;
 
-    // Nous inputs
+    // Satisfer el linter pels senyals obligatoris no utilitzats
+    wire _unused = &{ena, uio_in, 1'b0};
+
+    // Mapping d'entrades
     wire jump_btn = ui_in[0];
     wire game_rst = ui_in[1];
     wire [1:0] difficulty = ui_in[3:2]; // Selector de dificultat
-    wire [3:0] seed = ui_in[7:4];       // Llavors reduïdes per fer espai
+    wire [3:0] seed = ui_in[7:4];       // Llavors 
 
-    // 32-bit LFSR
+    // LFSR de 32 bits
     reg [31:0] lfsr;
 
-    // Nous estats de la FSM
+    // Estats de la FSM
     localparam S_IDLE  = 3'd0;
     localparam S_RUN   = 3'd1;
     localparam S_JUMP  = 3'd2;
@@ -83,14 +86,13 @@ module tt_um_dino7 (
             obs_c <= 0; obs_g <= 0; obs_f <= 0;
             jump_timer <= 0;
             cooldown_timer <= 0;
-            lfsr <= {lfsr[27:0], seed}; // Mantenim entropia entre partides
+            lfsr <= {lfsr[27:0], seed}; // Mantenim entropia LFSR
             frame_max <= init_base_speed;
             speed_step <= init_speed_step;
             blink_timer <= 0;
         end else begin
             clk_div <= clk_div + 1;
 
-            // Capturem el salt fora del tick de frame per màxima resposta
             if (state == S_RUN && jump_btn && cooldown_timer == 0) begin
                 state <= S_JUMP;
                 jump_timer <= 3;
@@ -109,13 +111,13 @@ module tt_um_dino7 (
                     S_RUN, S_JUMP: begin
                         obs_f <= obs_g;
                         obs_g <= obs_c;
-                        // Impedeix spawn si hi ha obstacle a 'g' per evitar salts impossibles
+                        // Impedeix spawn d'obstacle si n'hi ha un d'acostant-se
                         obs_c <= (lfsr[0] & lfsr[1] & lfsr[2]) & !obs_c & !obs_g; 
 
                         if (obs_g && state == S_RUN) begin
                             state <= S_HIT;
-                            blink_timer <= 5; // Temps de flaix de xoc
-                            if (score > max_score) max_score <= score; // Actualitza High Score
+                            blink_timer <= 5; 
+                            if (score > max_score) max_score <= score;
                         end else begin
                             if (obs_f && state == S_JUMP) begin
                                 if (score < 9) score <= score + 1;
@@ -142,14 +144,15 @@ module tt_um_dino7 (
                     end
                     
                     S_SCORE: begin
-                        blink_timer <= blink_timer + 1; // S'usa per alternar puntuacions a la pantalla
+                        blink_timer <= blink_timer + 1;
                     end
+
+                    default: state <= S_IDLE; // Prevé avís CASEINCOMPLETE i errors rad
                 endcase
             end
         end
     end
 
-    // Descodificador 7 segments
     function [6:0] seg7;
         input [3:0] val;
         case(val)
@@ -163,14 +166,13 @@ module tt_um_dino7 (
     reg [7:0] out;
     always @(*) begin
         if (state == S_IDLE) begin
-            out = {1'b1, seg7(max_score)}; // IDLE: Mostra High Score amb el Punt Decimal ON
+            out = {1'b1, seg7(max_score)};
         end else if (state == S_HIT) begin
-            out = 8'b11111111; // HIT: Tot encès
+            out = 8'b11111111;
         end else if (state == S_SCORE) begin
-            if (blink_timer[3]) out = {1'b1, seg7(max_score)}; // Alterna High Score (DP On)
-            else                out = {1'b0, seg7(score)};     // Alterna Puntuació Final (DP Off)
+            if (blink_timer[3]) out = {1'b1, seg7(max_score)};
+            else                out = {1'b0, seg7(score)};
         end else begin
-            // In Game display mapping
             out[0] = 1'b0;                 
             out[1] = (state == S_JUMP);    
             out[2] = obs_c;                
