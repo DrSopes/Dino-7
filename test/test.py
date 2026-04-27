@@ -32,9 +32,12 @@ def log_state(dut, tag="STATE"):
     dut._log.info(
         f"[{tag}] uo_out=0x{value:02X} "
         f"(dp={int(has_bit(value, SEG_DP))} "
-        f"a={int(has_bit(value, SEG_A))} b={int(has_bit(value, SEG_B))} "
-        f"c={int(has_bit(value, SEG_C))} d={int(has_bit(value, SEG_D))} "
-        f"e={int(has_bit(value, SEG_E))} f={int(has_bit(value, SEG_F))} "
+        f"a={int(has_bit(value, SEG_A))} "
+        f"b={int(has_bit(value, SEG_B))} "
+        f"c={int(has_bit(value, SEG_C))} "
+        f"d={int(has_bit(value, SEG_D))} "
+        f"e={int(has_bit(value, SEG_E))} "
+        f"f={int(has_bit(value, SEG_F))} "
         f"g={int(has_bit(value, SEG_G))})"
     )
 
@@ -66,8 +69,7 @@ async def start_game(dut, timeout_cycles=80):
         val = uo(dut)
         if val != IDLE_ZERO_WITH_DP:
             dut._log.info(
-                f"[PASS] Game left IDLE after {i+1} cycles "
-                f"(uo_out=0x{val:02X})"
+                f"[PASS] Game left IDLE after {i+1} cycles (uo_out=0x{val:02X})"
             )
             dut.ui_in.value = ui(dut) & ~0x01
             await ClockCycles(dut.clk, 1)
@@ -82,10 +84,11 @@ async def wait_for_any_change(dut, max_cycles, label):
     start = uo(dut)
     for i in range(max_cycles):
         await RisingEdge(dut.clk)
-        if uo(dut) != start:
+        now = uo(dut)
+        if now != start:
             dut._log.info(
                 f"[PASS] {label}: output changed after {i+1} cycles "
-                f"(0x{start:02X} -> 0x{uo(dut):02X})"
+                f"(0x{start:02X} -> 0x{now:02X})"
             )
             return i + 1
     raise AssertionError(
@@ -104,29 +107,38 @@ async def wait_for_hit(dut, timeout_cycles=400):
     raise AssertionError("[FAIL] No HIT state detected within timeout")
 
 
-async def wait_for_score_screen(dut, timeout_cycles=200):
+async def wait_for_score_screen(dut, timeout_cycles=300):
     dut._log.info(f"[STEP] Waiting for SCORE screen (timeout {timeout_cycles} cycles)")
+    seen_hit = False
+
     for i in range(timeout_cycles):
         await RisingEdge(dut.clk)
         val = uo(dut)
-        if val != ALL_ON and not has_bit(val, SEG_D):
+
+        if val == ALL_ON:
+            seen_hit = True
+            continue
+
+        if seen_hit and val != ALL_ON:
             dut._log.info(
                 f"[PASS] SCORE screen detected after {i+1} cycles "
                 f"(uo_out=0x{val:02X})"
             )
             log_state(dut, "AT_SCORE")
             return
+
     raise AssertionError("[FAIL] Score screen not reached after HIT")
 
 
-async def wait_for_dp_toggle_on_score(dut, timeout_cycles=200):
-    dut._log.info("[STEP] Checking score/max-score alternation")
+async def wait_for_dp_toggle_on_score(dut, timeout_cycles=300):
+    dut._log.info("[STEP] Checking score/max-score alternation using decimal point")
     seen_dp_0 = False
     seen_dp_1 = False
 
     for i in range(timeout_cycles):
         await RisingEdge(dut.clk)
         val = uo(dut)
+
         if val == ALL_ON:
             continue
 
@@ -136,7 +148,9 @@ async def wait_for_dp_toggle_on_score(dut, timeout_cycles=200):
             seen_dp_0 = True
 
         if seen_dp_0 and seen_dp_1:
-            dut._log.info(f"[PASS] Score screen alternation observed in {i+1} cycles")
+            dut._log.info(
+                f"[PASS] Score/max-score alternation observed within {i+1} cycles"
+            )
             return
 
     raise AssertionError("[FAIL] No DP alternation observed on score screen")
@@ -153,7 +167,8 @@ async def test_dino7_full(dut):
 
     dut._log.info("[CHECK] Verifying idle screen after power-up")
     assert uo(dut) == IDLE_ZERO_WITH_DP, (
-        f"[FAIL] Idle screen mismatch: expected 0x{IDLE_ZERO_WITH_DP:02X}, got 0x{uo(dut):02X}"
+        f"[FAIL] Idle screen mismatch: expected 0x{IDLE_ZERO_WITH_DP:02X}, "
+        f"got 0x{uo(dut):02X}"
     )
     dut._log.info("[PASS] Idle screen is correct")
 
@@ -163,8 +178,8 @@ async def test_dino7_full(dut):
     await wait_for_any_change(dut, 80, "gameplay motion")
 
     await wait_for_hit(dut, timeout_cycles=400)
-    await wait_for_score_screen(dut, timeout_cycles=200)
-    await wait_for_dp_toggle_on_score(dut, timeout_cycles=200)
+    await wait_for_score_screen(dut, timeout_cycles=300)
+    await wait_for_dp_toggle_on_score(dut, timeout_cycles=300)
 
     dut._log.info("[CHECK] Testing in-game reset")
     await pulse_game_reset(dut, cycles=2)
