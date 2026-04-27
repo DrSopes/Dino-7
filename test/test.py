@@ -21,9 +21,9 @@ async def test_dino7(dut):
     dut.rst_n.value = 1
     await ClockCycles(dut.clk, 5)
 
-    dut._log.info("Checking IDLE state (Score should be 0 = 0x3F)...")
-    # Score 0 on 7-seg is 0111111 in binary -> 0x3F
-    assert dut.uo_out.value == 0x3F, f"Expected 0x3F, got {hex(dut.uo_out.value)}"
+    dut._log.info("Checking IDLE state (High Score should be 0 = 0xBF)...")
+    # Score 0 on 7-seg is 0111111 in binary -> 0x3F. DP is on (0x80) -> 0xBF
+    assert dut.uo_out.value == 0xBF, f"Expected 0xBF, got {hex(dut.uo_out.value)}"
 
     dut._log.info("Simulating jump to start game...")
     dut.ui_in.value = 1  # ui_in[0] high (Jump button)
@@ -44,6 +44,6 @@ async def test_dino7(dut):
     dut.ui_in.value = 0
     await ClockCycles(dut.clk, 15)
 
-    assert dut.uo_out.value == 0x3F, "Score should reset back to 0"
-    
+    assert dut.uo_out.value == 0xBF, "High Score should reset screen back to 0xBF"
+
     dut._log.info("Test passed successfully!")

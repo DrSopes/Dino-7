@@ -19,16 +19,16 @@ project:
     - "tt_um_dino7.v"
 
 # The pinout of your project. Leave unused pins blank. DO NOT delete or add any pins.
-pinout:                 # <--- SECCIÓ PINOUT RESTRUCTURADA
+pinout:
   # Inputs
   ui[0]: "Jump button (active high)"
   ui[1]: "Reset game (active high)"
-  ui[2]: "LFSR seed bit 2"
-  ui[3]: "LFSR seed bit 3"
-  ui[4]: "LFSR seed bit 4"
-  ui[5]: "LFSR seed bit 5"
-  ui[6]: "LFSR seed bit 6"
-  ui[7]: "LFSR seed bit 7"
+  ui[2]: "Difficulty Selector LSB (00=Norm, 11=Insane)"
+  ui[3]: "Difficulty Selector MSB"
+  ui[4]: "LFSR seed bit 0"
+  ui[5]: "LFSR seed bit 1"
+  ui[6]: "LFSR seed bit 2"
+  ui[7]: "LFSR seed bit 3"
 
   # Outputs
   uo[0]: "Segment a (unused)"
