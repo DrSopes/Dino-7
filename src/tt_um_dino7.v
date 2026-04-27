@@ -14,16 +14,12 @@ module tt_um_dino7 (
     assign uio_out = 8'b0;
     assign uio_oe  = 8'b0;
 
-    // Satisfer el linter (excloem uio_in[7] perquè ara l'usarem)
-    wire _unused = &{ena, uio_in[6:0], 1'b0};
+    wire _unused = &{ena, uio_in, 1'b0};
 
     wire jump_btn = ui_in[0];
     wire game_rst = ui_in[1];
-    wire [1:0] difficulty = ui_in[3:2]; 
-    wire [3:0] seed = ui_in[7:4];       
-
-    // BACKDOOR DE HARDWARE PER A TESTS (FAST SIM)
-    wire fast_sim = uio_in[7];
+    wire [1:0] difficulty = ui_in[3:2];
+    wire [3:0] seed = ui_in[7:4];
 
     reg [31:0] lfsr;
 
@@ -35,7 +31,7 @@ module tt_um_dino7 (
 
     reg [2:0] state;
     reg [3:0] score;
-    reg [3:0] max_score; 
+    reg [3:0] max_score;
 
     reg [23:0] clk_div;
     reg [23:0] frame_max;
@@ -51,19 +47,21 @@ module tt_um_dino7 (
     reg [23:0] init_speed_step;
 
     always @(*) begin
-        if (fast_sim) begin
-            // Mode test (Super ràpid, per RTL i GL Test)
-            init_base_speed = 24'd10;
-            init_speed_step = 24'd2;
-        end else begin
-            // Mode real silici GF180
-            case(difficulty)
-                2'b00: begin init_base_speed = 24'd6_250_000; init_speed_step = 24'd1_000_000; end 
-                2'b01: begin init_base_speed = 24'd5_000_000; init_speed_step = 24'd1_000_000; end 
-                2'b10: begin init_base_speed = 24'd3_750_000; init_speed_step = 24'd800_000;   end 
-                2'b11: begin init_base_speed = 24'd2_500_000; init_speed_step = 24'd500_000;   end 
+        `ifdef COCOTB_SIM
+            case (difficulty)
+                2'b00: begin init_base_speed = 24'd10; init_speed_step = 24'd2; end
+                2'b01: begin init_base_speed = 24'd8;  init_speed_step = 24'd2; end
+                2'b10: begin init_base_speed = 24'd6;  init_speed_step = 24'd1; end
+                default: begin init_base_speed = 24'd4; init_speed_step = 24'd1; end
             endcase
-        end
+        `else
+            case (difficulty)
+                2'b00: begin init_base_speed = 24'd6_250_000; init_speed_step = 24'd1_000_000; end
+                2'b01: begin init_base_speed = 24'd5_000_000; init_speed_step = 24'd1_000_000; end
+                2'b10: begin init_base_speed = 24'd3_750_000; init_speed_step = 24'd800_000;   end
+                default: begin init_base_speed = 24'd2_500_000; init_speed_step = 24'd500_000; end
+            endcase
+        `endif
     end
 
     always @(posedge clk) begin
@@ -90,7 +88,7 @@ module tt_um_dino7 (
             obs_f <= 0;
             jump_timer <= 0;
             cooldown_timer <= 0;
-            lfsr <= {lfsr[27:0], seed}; 
+            lfsr <= {lfsr[27:0], seed};
             frame_max <= init_base_speed;
             speed_step <= init_speed_step;
             blink_timer <= 0;
@@ -119,7 +117,7 @@ module tt_um_dino7 (
                     S_RUN, S_JUMP: begin
                         obs_f <= obs_g;
                         obs_g <= obs_c;
-                        obs_c <= (lfsr[0] & lfsr[1] & lfsr[2]) & !obs_c & !obs_g; 
+                        obs_c <= (lfsr[0] & lfsr[1] & lfsr[2]) & !obs_c & !obs_g;
 
                         if (obs_g && state == S_RUN) begin
                             state <= S_HIT;
