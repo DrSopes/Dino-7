@@ -1,32 +1,33 @@
 `default_nettype none
 
 module tt_um_dino7 (
-    input  wire [7:0] ui_in,    // Dedicated inputs
-    output wire [7:0] uo_out,   // Dedicated outputs
-    input  wire [7:0] uio_in,   // IOs: Input path
-    output wire [7:0] uio_out,  // IOs: Output path
-    output wire [7:0] uio_oe,   // IOs: Enable path (active high)
-    input  wire       ena,      // always 1 when the design is powered
-    input  wire       clk,      // clock
-    input  wire       rst_n     // reset_n - low to reset
+    input  wire [7:0] ui_in,
+    output wire [7:0] uo_out,
+    input  wire [7:0] uio_in,
+    output wire [7:0] uio_out,
+    output wire [7:0] uio_oe,
+    input  wire       ena,
+    input  wire       clk,
+    input  wire       rst_n
 );
 
     assign uio_out = 8'b0;
     assign uio_oe  = 8'b0;
 
-    // Satisfer el linter pels senyals obligatoris no utilitzats
-    wire _unused = &{ena, uio_in, 1'b0};
+    // Satisfer el linter (excloem uio_in[7] perquè ara l'usarem)
+    wire _unused = &{ena, uio_in[6:0], 1'b0};
 
     // Mapping d'entrades
     wire jump_btn = ui_in[0];
     wire game_rst = ui_in[1];
-    wire [1:0] difficulty = ui_in[3:2]; // Selector de dificultat
-    wire [3:0] seed = ui_in[7:4];       // Llavors 
+    wire [1:0] difficulty = ui_in[3:2]; 
+    wire [3:0] seed = ui_in[7:4];       
 
-    // LFSR de 32 bits
+    // BACKDOOR DE HARDWARE PER A TESTS (FAST SIM)
+    wire fast_sim = uio_in[7];
+
     reg [31:0] lfsr;
 
-    // Estats de la FSM
     localparam S_IDLE  = 3'd0;
     localparam S_RUN   = 3'd1;
     localparam S_JUMP  = 3'd2;
@@ -35,35 +36,35 @@ module tt_um_dino7 (
 
     reg [2:0] state;
     reg [3:0] score;
-    reg [3:0] max_score; // Registre de High Score
+    reg [3:0] max_score; 
 
     reg [23:0] clk_div;
     reg [23:0] frame_max;
     reg [23:0] speed_step;
     wire frame_tick = (clk_div >= frame_max);
 
-    // Obstacles i Timers
     reg obs_c, obs_g, obs_f;
     reg [2:0] jump_timer;
     reg [2:0] cooldown_timer;
     reg [4:0] blink_timer;
 
-    // Descodificador de dificultat per Hardware
     reg [23:0] init_base_speed;
     reg [23:0] init_speed_step;
 
     always @(*) begin
-        `ifdef COCOTB_SIM
+        if (fast_sim) begin
+            // Mode test (Super ràpid, per RTL i GL Test)
             init_base_speed = 24'd10;
             init_speed_step = 24'd2;
-        `else
+        end else begin
+            // Mode real silici GF180
             case(difficulty)
-                2'b00: begin init_base_speed = 24'd6_250_000; init_speed_step = 24'd1_000_000; end // Normal
-                2'b01: begin init_base_speed = 24'd5_000_000; init_speed_step = 24'd1_000_000; end // Fast
-                2'b10: begin init_base_speed = 24'd3_750_000; init_speed_step = 24'd800_000;   end // Hard
-                2'b11: begin init_base_speed = 24'd2_500_000; init_speed_step = 24'd500_000;   end // Insane
+                2'b00: begin init_base_speed = 24'd6_250_000; init_speed_step = 24'd1_000_000; end 
+                2'b01: begin init_base_speed = 24'd5_000_000; init_speed_step = 24'd1_000_000; end 
+                2'b10: begin init_base_speed = 24'd3_750_000; init_speed_step = 24'd800_000;   end 
+                2'b11: begin init_base_speed = 24'd2_500_000; init_speed_step = 24'd500_000;   end 
             endcase
-        `endif
+        end
     end
 
     always @(posedge clk) begin
@@ -86,7 +87,7 @@ module tt_um_dino7 (
             obs_c <= 0; obs_g <= 0; obs_f <= 0;
             jump_timer <= 0;
             cooldown_timer <= 0;
-            lfsr <= {lfsr[27:0], seed}; // Mantenim entropia LFSR
+            lfsr <= {lfsr[27:0], seed}; 
             frame_max <= init_base_speed;
             speed_step <= init_speed_step;
             blink_timer <= 0;
@@ -100,7 +101,6 @@ module tt_um_dino7 (
 
             if (frame_tick) begin
                 clk_div <= 0;
-                // LFSR 32 bits (Taps: 32, 22, 2, 1)
                 lfsr <= {lfsr[30:0], lfsr[31] ^ lfsr[21] ^ lfsr[1] ^ lfsr[0]};
 
                 case (state)
@@ -111,7 +111,6 @@ module tt_um_dino7 (
                     S_RUN, S_JUMP: begin
                         obs_f <= obs_g;
                         obs_g <= obs_c;
-                        // Impedeix spawn d'obstacle si n'hi ha un d'acostant-se
                         obs_c <= (lfsr[0] & lfsr[1] & lfsr[2]) & !obs_c & !obs_g; 
 
                         if (obs_g && state == S_RUN) begin
@@ -147,7 +146,7 @@ module tt_um_dino7 (
                         blink_timer <= blink_timer + 1;
                     end
 
-                    default: state <= S_IDLE; // Prevé avís CASEINCOMPLETE i errors rad
+                    default: state <= S_IDLE;
                 endcase
             end
         end
