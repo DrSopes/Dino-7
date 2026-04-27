@@ -21,48 +21,56 @@ S_HIT   = 3
 S_SCORE = 4
 
 
+def sig_u(obj, name="signal"):
+    v = obj.value
+    try:
+        return v.to_unsigned() if hasattr(v, "to_unsigned") else int(v)
+    except ValueError:
+        raise AssertionError(f"[FAIL] {name} contains X/Z: {v!s}")
+
+
 def dut_i(dut):
     return dut.user_project
 
 
 def uo(dut):
-    return dut.uo_out.value.to_unsigned()
+    return sig_u(dut.uo_out, "uo_out")
 
 
 def ui(dut):
-    return dut.ui_in.value.to_unsigned()
+    return sig_u(dut.ui_in, "ui_in")
 
 
 def state(dut):
-    return dut_i(dut).state.value.to_unsigned()
+    return sig_u(dut_i(dut).state, "state")
 
 
 def score(dut):
-    return dut_i(dut).score.value.to_unsigned()
+    return sig_u(dut_i(dut).score, "score")
 
 
 def max_score(dut):
-    return dut_i(dut).max_score.value.to_unsigned()
+    return sig_u(dut_i(dut).max_score, "max_score")
 
 
 def cooldown(dut):
-    return dut_i(dut).cooldown_timer.value.to_unsigned()
+    return sig_u(dut_i(dut).cooldown_timer, "cooldown_timer")
 
 
 def frame_max(dut):
-    return dut_i(dut).frame_max.value.to_unsigned()
+    return sig_u(dut_i(dut).frame_max, "frame_max")
 
 
 def obs_c(dut):
-    return dut_i(dut).obs_c.value.to_unsigned()
+    return sig_u(dut_i(dut).obs_c, "obs_c")
 
 
 def obs_g(dut):
-    return dut_i(dut).obs_g.value.to_unsigned()
+    return sig_u(dut_i(dut).obs_g, "obs_g")
 
 
 def obs_f(dut):
-    return dut_i(dut).obs_f.value.to_unsigned()
+    return sig_u(dut_i(dut).obs_f, "obs_f")
 
 
 def has_bit(value, bitmask):
@@ -361,7 +369,9 @@ async def test_output_sanity(dut):
     await hold_jump_until_start(dut)
     await ClockCycles(dut.clk, 5)
     gameplay_val = uo(dut)
-    assert has_bit(gameplay_val, SEG_D), f"[FAIL] Ground segment should be on during gameplay, got 0x{gameplay_val:02X}"
+    assert has_bit(gameplay_val, SEG_D), (
+        f"[FAIL] Ground segment should be on during gameplay, got 0x{gameplay_val:02X}"
+    )
 
     await wait_for_hit_and_score(dut)
     assert uo(dut) != ALL_ON, "[FAIL] Score output should not remain all-on"
