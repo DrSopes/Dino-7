@@ -91,11 +91,13 @@ def log_state(dut, tag="STATE"):
     )
 
 
+async def start_clock(dut):
+    cocotb.start_soon(Clock(dut.clk, 40, unit="ns").start())
+    await ClockCycles(dut.clk, 1)
+
+
 async def init_test(dut, difficulty_bits=0b00, seed_bits=0b1111):
-    if not hasattr(init_test, "_clock_started"):
-        clock = Clock(dut.clk, 40, unit="ns")
-        cocotb.start_soon(clock.start())
-        init_test._clock_started = True
+    await start_clock(dut)
 
     dut.ena.value = 1
     dut.uio_in.value = 0
@@ -169,6 +171,7 @@ async def wait_for_hit_and_score(dut):
 async def wait_for_dp_toggle_in_score(dut, timeout_cycles=300):
     seen0 = False
     seen1 = False
+
     for i in range(timeout_cycles):
         await RisingEdge(dut.clk)
         if state(dut) != S_SCORE:
@@ -180,11 +183,13 @@ async def wait_for_dp_toggle_in_score(dut, timeout_cycles=300):
         if seen0 and seen1:
             dut._log.info(f"[PASS] DP toggled in SCORE after {i+1} cycles")
             return
+
     raise AssertionError("[FAIL] DP did not toggle in SCORE")
 
 
 async def autoplay_until_score_increase(dut, timeout_cycles=1500):
     last_score = score(dut)
+
     for i in range(timeout_cycles):
         await RisingEdge(dut.clk)
 
