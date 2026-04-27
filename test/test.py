@@ -32,6 +32,21 @@ def dut_i(dut):
     return dut.user_project
 
 
+def has_internal(dut, name):
+    return getattr(dut_i(dut), name, None) is not None
+
+
+def internal_u(dut, name):
+    obj = getattr(dut_i(dut), name, None)
+    if obj is None:
+        return None
+    return sig_u(obj, name)
+
+
+def is_gatelevel(dut):
+    return not has_internal(dut, "state")
+
+
 def uo(dut):
     return sig_u(dut.uo_out, "uo_out")
 
@@ -41,35 +56,35 @@ def ui(dut):
 
 
 def state(dut):
-    return sig_u(dut_i(dut).state, "state")
+    return internal_u(dut, "state")
 
 
 def score(dut):
-    return sig_u(dut_i(dut).score, "score")
+    return internal_u(dut, "score")
 
 
 def max_score(dut):
-    return sig_u(dut_i(dut).max_score, "max_score")
+    return internal_u(dut, "max_score")
 
 
 def cooldown(dut):
-    return sig_u(dut_i(dut).cooldown_timer, "cooldown_timer")
+    return internal_u(dut, "cooldown_timer")
 
 
 def frame_max(dut):
-    return sig_u(dut_i(dut).frame_max, "frame_max")
+    return internal_u(dut, "frame_max")
 
 
 def obs_c(dut):
-    return sig_u(dut_i(dut).obs_c, "obs_c")
+    return internal_u(dut, "obs_c")
 
 
 def obs_g(dut):
-    return sig_u(dut_i(dut).obs_g, "obs_g")
+    return internal_u(dut, "obs_g")
 
 
 def obs_f(dut):
-    return sig_u(dut_i(dut).obs_f, "obs_f")
+    return internal_u(dut, "obs_f")
 
 
 def has_bit(value, bitmask):
@@ -97,10 +112,13 @@ def expected_idle_output(hs):
 
 
 def log_state(dut, tag="STATE"):
-    value = uo(dut)
+    if is_gatelevel(dut):
+        dut._log.info(f"[{tag}] uo_out=0x{uo(dut):02X} (gate-level: internal nets unavailable)")
+        return
+
     dut._log.info(
         f"[{tag}] "
-        f"uo_out=0x{value:02X} "
+        f"uo_out=0x{uo(dut):02X} "
         f"state={state(dut)} "
         f"score={score(dut)} "
         f"max_score={max_score(dut)} "
@@ -132,7 +150,35 @@ async def pulse_jump(dut, cycles=2):
     dut.ui_in.value = ui(dut) & ~0x01
 
 
+async def pulse_game_reset(dut, cycles=2):
+    dut.ui_in.value = ui(dut) | 0x02
+    await ClockCycles(dut.clk, cycles)
+    dut.ui_in.value = ui(dut) & ~0x02
+
+
+async def hold_jump_until_output_leaves_idle(dut, timeout_cycles=80):
+    dut._log.info("[STEP] Holding jump until output leaves idle")
+    start = uo(dut)
+    dut.ui_in.value = ui(dut) | 0x01
+
+    for i in range(timeout_cycles):
+        await RisingEdge(dut.clk)
+        if uo(dut) != start:
+            dut._log.info(f"[PASS] Left idle output after {i+1} cycles")
+            dut.ui_in.value = ui(dut) & ~0x01
+            await ClockCycles(dut.clk, 1)
+            log_state(dut, "AFTER_START")
+            return
+
+    dut.ui_in.value = ui(dut) & ~0x01
+    raise AssertionError("[FAIL] Output never left IDLE while jump was held")
+
+
 async def hold_jump_until_start(dut, timeout_cycles=80):
+    if is_gatelevel(dut):
+        await hold_jump_until_output_leaves_idle(dut, timeout_cycles)
+        return
+
     dut._log.info("[STEP] Holding jump until game leaves IDLE")
     dut.ui_in.value = ui(dut) | 0x01
 
@@ -149,22 +195,6 @@ async def hold_jump_until_start(dut, timeout_cycles=80):
     raise AssertionError("[FAIL] Game never left IDLE")
 
 
-async def pulse_game_reset(dut, cycles=2):
-    dut.ui_in.value = ui(dut) | 0x02
-    await ClockCycles(dut.clk, cycles)
-    dut.ui_in.value = ui(dut) & ~0x02
-
-
-async def wait_for_state(dut, target_state, timeout_cycles=400, label="state"):
-    for i in range(timeout_cycles):
-        await RisingEdge(dut.clk)
-        if state(dut) == target_state:
-            dut._log.info(f"[PASS] Reached {label} after {i+1} cycles")
-            log_state(dut, f"AT_{label.upper()}")
-            return
-    raise AssertionError(f"[FAIL] Did not reach {label} within {timeout_cycles} cycles")
-
-
 async def wait_for_output_change(dut, timeout_cycles=120, label="output change"):
     start = uo(dut)
     for i in range(timeout_cycles):
@@ -174,37 +204,50 @@ async def wait_for_output_change(dut, timeout_cycles=120, label="output change")
             dut._log.info(
                 f"[PASS] {label} after {i+1} cycles: 0x{start:02X} -> 0x{now:02X}"
             )
-            return
+            return now
     raise AssertionError(f"[FAIL] No {label} within {timeout_cycles} cycles")
 
 
-async def wait_for_run_ready(dut, timeout_cycles=300):
+async def wait_for_state(dut, target_state, timeout_cycles=400, label="state"):
+    if is_gatelevel(dut):
+        raise AssertionError(f"[FAIL] wait_for_state({label}) requires RTL-visible internal nets")
+
     for i in range(timeout_cycles):
         await RisingEdge(dut.clk)
-        if state(dut) == S_RUN and cooldown(dut) == 0:
-            dut._log.info(f"[PASS] RUN ready for controlled jump after {i+1} cycles")
+        if state(dut) == target_state:
+            dut._log.info(f"[PASS] Reached {label} after {i+1} cycles")
+            log_state(dut, f"AT_{label.upper()}")
             return
-    raise AssertionError("[FAIL] Did not reach RUN with cooldown==0")
+    raise AssertionError(f"[FAIL] Did not reach {label} within {timeout_cycles} cycles")
 
 
-async def wait_for_jump_entry(dut, timeout_cycles=30):
+async def wait_for_all_on(dut, timeout_cycles=400, label="all-on hit"):
     for i in range(timeout_cycles):
         await RisingEdge(dut.clk)
-        if state(dut) == S_JUMP:
-            dut._log.info(f"[PASS] Entered S_JUMP after {i+1} cycles")
+        if uo(dut) == ALL_ON:
+            dut._log.info(f"[PASS] Reached {label} after {i+1} cycles")
+            log_state(dut, "AT_HIT")
             return
-    raise AssertionError("[FAIL] Jump did not enter S_JUMP")
+    raise AssertionError(f"[FAIL] Did not reach {label} within {timeout_cycles} cycles")
 
 
-async def wait_until_not_jump(dut, timeout_cycles=100):
-    for _ in range(timeout_cycles):
+async def wait_for_score_screen_visible(dut, timeout_cycles=250):
+    for i in range(timeout_cycles):
         await RisingEdge(dut.clk)
-        if state(dut) != S_JUMP:
+        val = uo(dut)
+        if val != ALL_ON and val != expected_idle_output(0):
+            dut._log.info(f"[PASS] Visible score-like screen after {i+1} cycles (0x{val:02X})")
+            log_state(dut, "AT_SCORE")
             return
-    raise AssertionError("[FAIL] Stayed in S_JUMP too long")
+    raise AssertionError("[FAIL] Score screen not observed")
 
 
 async def wait_for_hit_and_score(dut):
+    if is_gatelevel(dut):
+        await wait_for_all_on(dut, timeout_cycles=400, label="hit")
+        await wait_for_score_screen_visible(dut, timeout_cycles=250)
+        return
+
     await wait_for_state(dut, S_HIT, timeout_cycles=400, label="hit")
     assert uo(dut) == ALL_ON, f"[FAIL] HIT output should be 0xFF, got 0x{uo(dut):02X}"
 
@@ -218,20 +261,24 @@ async def wait_for_dp_toggle_in_score(dut, timeout_cycles=300):
 
     for i in range(timeout_cycles):
         await RisingEdge(dut.clk)
-        if state(dut) != S_SCORE:
+        val = uo(dut)
+        if val == ALL_ON:
             continue
-        if has_bit(uo(dut), SEG_DP):
+        if has_bit(val, SEG_DP):
             seen1 = True
         else:
             seen0 = True
         if seen0 and seen1:
-            dut._log.info(f"[PASS] DP toggled in SCORE after {i+1} cycles")
+            dut._log.info(f"[PASS] DP toggled after {i+1} cycles")
             return
 
-    raise AssertionError("[FAIL] DP did not toggle in SCORE")
+    raise AssertionError("[FAIL] DP did not toggle")
 
 
 async def autoplay_until_score_increase(dut, timeout_cycles=1500):
+    if is_gatelevel(dut):
+        raise AssertionError("[FAIL] autoplay_until_score_increase requires RTL-visible score")
+
     last_score = score(dut)
 
     for i in range(timeout_cycles):
@@ -252,6 +299,9 @@ async def autoplay_until_score_increase(dut, timeout_cycles=1500):
 
 
 async def autoplay_until_score_at_least(dut, target, timeout_cycles=5000):
+    if is_gatelevel(dut):
+        raise AssertionError("[FAIL] autoplay_until_score_at_least requires RTL-visible score")
+
     for i in range(timeout_cycles):
         await RisingEdge(dut.clk)
 
@@ -272,15 +322,51 @@ async def autoplay_until_score_at_least(dut, target, timeout_cycles=5000):
     raise AssertionError(f"[FAIL] Timeout before reaching score {target}")
 
 
+async def wait_for_run_ready(dut, timeout_cycles=300):
+    if is_gatelevel(dut):
+        raise AssertionError("[FAIL] wait_for_run_ready requires RTL-visible state/cooldown")
+
+    for i in range(timeout_cycles):
+        await RisingEdge(dut.clk)
+        if state(dut) == S_RUN and cooldown(dut) == 0:
+            dut._log.info(f"[PASS] RUN ready for controlled jump after {i+1} cycles")
+            return
+    raise AssertionError("[FAIL] Did not reach RUN with cooldown==0")
+
+
+async def wait_for_jump_entry(dut, timeout_cycles=30):
+    if is_gatelevel(dut):
+        raise AssertionError("[FAIL] wait_for_jump_entry requires RTL-visible state")
+
+    for i in range(timeout_cycles):
+        await RisingEdge(dut.clk)
+        if state(dut) == S_JUMP:
+            dut._log.info(f"[PASS] Entered S_JUMP after {i+1} cycles")
+            return
+    raise AssertionError("[FAIL] Jump did not enter S_JUMP")
+
+
+async def wait_until_not_jump(dut, timeout_cycles=100):
+    if is_gatelevel(dut):
+        raise AssertionError("[FAIL] wait_until_not_jump requires RTL-visible state")
+
+    for _ in range(timeout_cycles):
+        await RisingEdge(dut.clk)
+        if state(dut) != S_JUMP:
+            return
+    raise AssertionError("[FAIL] Stayed in S_JUMP too long")
+
+
 @cocotb.test()
 async def test_boot_idle(dut):
     await start_clock(dut)
     await apply_reset(dut, difficulty_bits=0b00, seed_bits=0b1111)
 
-    assert state(dut) == S_IDLE, f"[FAIL] Expected IDLE after reset, got {state(dut)}"
-    assert uo(dut) == expected_idle_output(0), f"[FAIL] Expected 0xBF in idle, got 0x{uo(dut):02X}"
-    assert score(dut) == 0, f"[FAIL] Score should reset to 0, got {score(dut)}"
-    assert max_score(dut) == 0, f"[FAIL] Max score should reset to 0, got {max_score(dut)}"
+    assert uo(dut) == expected_idle_output(0), f"[FAIL] Expected idle 0xBF, got 0x{uo(dut):02X}"
+    if not is_gatelevel(dut):
+        assert state(dut) == S_IDLE, f"[FAIL] Expected IDLE after reset, got {state(dut)}"
+        assert score(dut) == 0, f"[FAIL] Score should reset to 0, got {score(dut)}"
+        assert max_score(dut) == 0, f"[FAIL] Max score should reset to 0, got {max_score(dut)}"
     dut._log.info("[PASS] Boot idle test passed")
 
 
@@ -290,7 +376,8 @@ async def test_start_and_motion(dut):
     await apply_reset(dut, difficulty_bits=0b00, seed_bits=0b1111)
 
     await hold_jump_until_start(dut)
-    assert state(dut) in (S_RUN, S_JUMP), f"[FAIL] Expected RUN/JUMP, got {state(dut)}"
+    if not is_gatelevel(dut):
+        assert state(dut) in (S_RUN, S_JUMP), f"[FAIL] Expected RUN/JUMP, got {state(dut)}"
     await wait_for_output_change(dut, timeout_cycles=120, label="gameplay motion")
     dut._log.info("[PASS] Start and motion test passed")
 
@@ -316,9 +403,12 @@ async def test_reset_from_gameplay(dut):
     await pulse_game_reset(dut, cycles=2)
     await ClockCycles(dut.clk, 10)
 
-    expected = expected_idle_output(max_score(dut))
-    assert state(dut) == S_IDLE, f"[FAIL] Reset from gameplay should go to IDLE, got {state(dut)}"
-    assert uo(dut) == expected, f"[FAIL] Reset from gameplay should show 0x{expected:02X}, got 0x{uo(dut):02X}"
+    if is_gatelevel(dut):
+        assert has_bit(uo(dut), SEG_DP), f"[FAIL] Expected idle/high-score display with DP, got 0x{uo(dut):02X}"
+    else:
+        expected = expected_idle_output(max_score(dut))
+        assert state(dut) == S_IDLE, f"[FAIL] Reset from gameplay should go to IDLE, got {state(dut)}"
+        assert uo(dut) == expected, f"[FAIL] Reset from gameplay should show 0x{expected:02X}, got 0x{uo(dut):02X}"
     dut._log.info("[PASS] Reset from gameplay test passed")
 
 
@@ -332,18 +422,25 @@ async def test_reset_from_score(dut):
     await pulse_game_reset(dut, cycles=2)
     await ClockCycles(dut.clk, 10)
 
-    expected = expected_idle_output(max_score(dut))
-    assert state(dut) == S_IDLE, f"[FAIL] Reset from score should go to IDLE, got {state(dut)}"
-    assert uo(dut) == expected, f"[FAIL] Reset from score should show 0x{expected:02X}, got 0x{uo(dut):02X}"
-    assert max_score(dut) >= 1, f"[FAIL] Expected max_score >= 1 after score reset, got {max_score(dut)}"
+    if is_gatelevel(dut):
+        assert has_bit(uo(dut), SEG_DP), f"[FAIL] Expected idle/high-score display with DP, got 0x{uo(dut):02X}"
+    else:
+        expected = expected_idle_output(max_score(dut))
+        assert state(dut) == S_IDLE, f"[FAIL] Reset from score should go to IDLE, got {state(dut)}"
+        assert uo(dut) == expected, f"[FAIL] Reset from score should show 0x{expected:02X}, got 0x{uo(dut):02X}"
+        assert max_score(dut) >= 1, f"[FAIL] Expected max_score >= 1 after score reset, got {max_score(dut)}"
     dut._log.info("[PASS] Reset from score test passed")
 
 
 @cocotb.test()
 async def test_difficulty_modes(dut):
     await start_clock(dut)
-
     await apply_reset(dut, difficulty_bits=0b00, seed_bits=0b1111)
+
+    if is_gatelevel(dut):
+        dut._log.info("[SKIP-LITE] Difficulty internal divisor not observable in gate-level netlist")
+        return
+
     normal_frame = frame_max(dut)
     dut._log.info(f"[INFO] NORMAL frame_max={normal_frame}")
 
@@ -362,6 +459,12 @@ async def test_score_increment(dut):
     await start_clock(dut)
     await apply_reset(dut, difficulty_bits=0b00, seed_bits=0b1111)
 
+    if is_gatelevel(dut):
+        await hold_jump_until_start(dut)
+        await wait_for_hit_and_score(dut)
+        dut._log.info("[SKIP-LITE] Score register not observable in gate-level netlist")
+        return
+
     await hold_jump_until_start(dut)
     await autoplay_until_score_increase(dut, timeout_cycles=1500)
     assert score(dut) >= 1, f"[FAIL] Score did not increment, got {score(dut)}"
@@ -372,6 +475,15 @@ async def test_score_increment(dut):
 async def test_high_score_persistence(dut):
     await start_clock(dut)
     await apply_reset(dut, difficulty_bits=0b00, seed_bits=0b1111)
+
+    if is_gatelevel(dut):
+        await hold_jump_until_start(dut)
+        await wait_for_hit_and_score(dut)
+        await pulse_game_reset(dut, cycles=2)
+        await ClockCycles(dut.clk, 10)
+        assert has_bit(uo(dut), SEG_DP), f"[FAIL] Expected idle/high-score display with DP, got 0x{uo(dut):02X}"
+        dut._log.info("[SKIP-LITE] High-score register not directly observable in gate-level netlist")
+        return
 
     await hold_jump_until_start(dut)
     await autoplay_until_score_at_least(dut, target=1, timeout_cycles=5000)
@@ -398,6 +510,12 @@ async def test_high_score_persistence(dut):
 async def test_jump_cooldown(dut):
     await start_clock(dut)
     await apply_reset(dut, difficulty_bits=0b00, seed_bits=0b1111)
+
+    if is_gatelevel(dut):
+        await hold_jump_until_start(dut)
+        await wait_for_output_change(dut, timeout_cycles=120, label="post-start motion")
+        dut._log.info("[SKIP-LITE] Cooldown internals not observable in gate-level netlist")
+        return
 
     await hold_jump_until_start(dut)
     await wait_for_run_ready(dut, timeout_cycles=300)
