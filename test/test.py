@@ -11,7 +11,6 @@ SEG_F  = 1 << 5
 SEG_G  = 1 << 6
 SEG_DP = 1 << 7
 
-IDLE_ZERO_WITH_DP = 0xBF
 ALL_ON = 0xFF
 
 S_IDLE  = 0
@@ -77,6 +76,26 @@ def has_bit(value, bitmask):
     return (value & bitmask) != 0
 
 
+def seg7_encode(val):
+    table = {
+        0: 0x3F,
+        1: 0x06,
+        2: 0x5B,
+        3: 0x4F,
+        4: 0x66,
+        5: 0x6D,
+        6: 0x7D,
+        7: 0x07,
+        8: 0x7F,
+        9: 0x6F,
+    }
+    return table.get(int(val) & 0xF, 0x00)
+
+
+def expected_idle_output(hs):
+    return 0x80 | seg7_encode(hs)
+
+
 def log_state(dut, tag="STATE"):
     value = uo(dut)
     dut._log.info(
@@ -96,9 +115,7 @@ async def start_clock(dut):
     await ClockCycles(dut.clk, 1)
 
 
-async def init_test(dut, difficulty_bits=0b00, seed_bits=0b1111):
-    await start_clock(dut)
-
+async def apply_reset(dut, difficulty_bits=0b00, seed_bits=0b1111):
     dut.ena.value = 1
     dut.uio_in.value = 0
     dut.ui_in.value = ((seed_bits & 0xF) << 4) | ((difficulty_bits & 0x3) << 2)
@@ -109,7 +126,7 @@ async def init_test(dut, difficulty_bits=0b00, seed_bits=0b1111):
     log_state(dut, "AFTER_RESET")
 
 
-async def pulse_jump(dut, cycles=1):
+async def pulse_jump(dut, cycles=2):
     dut.ui_in.value = ui(dut) | 0x01
     await ClockCycles(dut.clk, cycles)
     dut.ui_in.value = ui(dut) & ~0x01
@@ -152,12 +169,39 @@ async def wait_for_output_change(dut, timeout_cycles=120, label="output change")
     start = uo(dut)
     for i in range(timeout_cycles):
         await RisingEdge(dut.clk)
-        if uo(dut) != start:
+        now = uo(dut)
+        if now != start:
             dut._log.info(
-                f"[PASS] {label} after {i+1} cycles: 0x{start:02X} -> 0x{uo(dut):02X}"
+                f"[PASS] {label} after {i+1} cycles: 0x{start:02X} -> 0x{now:02X}"
             )
             return
     raise AssertionError(f"[FAIL] No {label} within {timeout_cycles} cycles")
+
+
+async def wait_for_run_ready(dut, timeout_cycles=300):
+    for i in range(timeout_cycles):
+        await RisingEdge(dut.clk)
+        if state(dut) == S_RUN and cooldown(dut) == 0:
+            dut._log.info(f"[PASS] RUN ready for controlled jump after {i+1} cycles")
+            return
+    raise AssertionError("[FAIL] Did not reach RUN with cooldown==0")
+
+
+async def wait_for_jump_entry(dut, timeout_cycles=30):
+    for i in range(timeout_cycles):
+        await RisingEdge(dut.clk)
+        if state(dut) == S_JUMP:
+            dut._log.info(f"[PASS] Entered S_JUMP after {i+1} cycles")
+            return
+    raise AssertionError("[FAIL] Jump did not enter S_JUMP")
+
+
+async def wait_until_not_jump(dut, timeout_cycles=100):
+    for _ in range(timeout_cycles):
+        await RisingEdge(dut.clk)
+        if state(dut) != S_JUMP:
+            return
+    raise AssertionError("[FAIL] Stayed in S_JUMP too long")
 
 
 async def wait_for_hit_and_score(dut):
@@ -199,7 +243,9 @@ async def autoplay_until_score_increase(dut, timeout_cycles=1500):
             dut.ui_in.value = ui(dut) & ~0x01
 
         if score(dut) > last_score:
-            dut._log.info(f"[PASS] Score increased from {last_score} to {score(dut)} after {i+1} cycles")
+            dut._log.info(
+                f"[PASS] Score increased from {last_score} to {score(dut)} after {i+1} cycles"
+            )
             return
 
     raise AssertionError("[FAIL] Could not increase score with autoplay")
@@ -219,16 +265,20 @@ async def autoplay_until_score_at_least(dut, target, timeout_cycles=5000):
             return
 
         if state(dut) == S_SCORE and score(dut) < target:
-            raise AssertionError(f"[FAIL] Died before reaching score {target}, final score={score(dut)}")
+            raise AssertionError(
+                f"[FAIL] Died before reaching score {target}, final score={score(dut)}"
+            )
 
     raise AssertionError(f"[FAIL] Timeout before reaching score {target}")
 
 
 @cocotb.test()
 async def test_boot_idle(dut):
-    await init_test(dut, difficulty_bits=0b00, seed_bits=0b1111)
+    await start_clock(dut)
+    await apply_reset(dut, difficulty_bits=0b00, seed_bits=0b1111)
+
     assert state(dut) == S_IDLE, f"[FAIL] Expected IDLE after reset, got {state(dut)}"
-    assert uo(dut) == IDLE_ZERO_WITH_DP, f"[FAIL] Expected 0xBF in idle, got 0x{uo(dut):02X}"
+    assert uo(dut) == expected_idle_output(0), f"[FAIL] Expected 0xBF in idle, got 0x{uo(dut):02X}"
     assert score(dut) == 0, f"[FAIL] Score should reset to 0, got {score(dut)}"
     assert max_score(dut) == 0, f"[FAIL] Max score should reset to 0, got {max_score(dut)}"
     dut._log.info("[PASS] Boot idle test passed")
@@ -236,7 +286,9 @@ async def test_boot_idle(dut):
 
 @cocotb.test()
 async def test_start_and_motion(dut):
-    await init_test(dut, difficulty_bits=0b00, seed_bits=0b1111)
+    await start_clock(dut)
+    await apply_reset(dut, difficulty_bits=0b00, seed_bits=0b1111)
+
     await hold_jump_until_start(dut)
     assert state(dut) in (S_RUN, S_JUMP), f"[FAIL] Expected RUN/JUMP, got {state(dut)}"
     await wait_for_output_change(dut, timeout_cycles=120, label="gameplay motion")
@@ -245,7 +297,9 @@ async def test_start_and_motion(dut):
 
 @cocotb.test()
 async def test_hit_and_score_screen(dut):
-    await init_test(dut, difficulty_bits=0b00, seed_bits=0b1111)
+    await start_clock(dut)
+    await apply_reset(dut, difficulty_bits=0b00, seed_bits=0b1111)
+
     await hold_jump_until_start(dut)
     await wait_for_hit_and_score(dut)
     await wait_for_dp_toggle_in_score(dut)
@@ -254,35 +308,46 @@ async def test_hit_and_score_screen(dut):
 
 @cocotb.test()
 async def test_reset_from_gameplay(dut):
-    await init_test(dut, difficulty_bits=0b00, seed_bits=0b1111)
+    await start_clock(dut)
+    await apply_reset(dut, difficulty_bits=0b00, seed_bits=0b1111)
+
     await hold_jump_until_start(dut)
     await wait_for_output_change(dut, timeout_cycles=120, label="pre-reset gameplay activity")
     await pulse_game_reset(dut, cycles=2)
     await ClockCycles(dut.clk, 10)
+
+    expected = expected_idle_output(max_score(dut))
     assert state(dut) == S_IDLE, f"[FAIL] Reset from gameplay should go to IDLE, got {state(dut)}"
-    assert uo(dut) == IDLE_ZERO_WITH_DP, f"[FAIL] Reset from gameplay should show 0xBF, got 0x{uo(dut):02X}"
+    assert uo(dut) == expected, f"[FAIL] Reset from gameplay should show 0x{expected:02X}, got 0x{uo(dut):02X}"
     dut._log.info("[PASS] Reset from gameplay test passed")
 
 
 @cocotb.test()
 async def test_reset_from_score(dut):
-    await init_test(dut, difficulty_bits=0b00, seed_bits=0b1111)
+    await start_clock(dut)
+    await apply_reset(dut, difficulty_bits=0b00, seed_bits=0b1111)
+
     await hold_jump_until_start(dut)
     await wait_for_hit_and_score(dut)
     await pulse_game_reset(dut, cycles=2)
     await ClockCycles(dut.clk, 10)
+
+    expected = expected_idle_output(max_score(dut))
     assert state(dut) == S_IDLE, f"[FAIL] Reset from score should go to IDLE, got {state(dut)}"
-    assert uo(dut) == IDLE_ZERO_WITH_DP, f"[FAIL] Reset from score should show 0xBF, got 0x{uo(dut):02X}"
+    assert uo(dut) == expected, f"[FAIL] Reset from score should show 0x{expected:02X}, got 0x{uo(dut):02X}"
+    assert max_score(dut) >= 1, f"[FAIL] Expected max_score >= 1 after score reset, got {max_score(dut)}"
     dut._log.info("[PASS] Reset from score test passed")
 
 
 @cocotb.test()
 async def test_difficulty_modes(dut):
-    await init_test(dut, difficulty_bits=0b00, seed_bits=0b1111)
+    await start_clock(dut)
+
+    await apply_reset(dut, difficulty_bits=0b00, seed_bits=0b1111)
     normal_frame = frame_max(dut)
     dut._log.info(f"[INFO] NORMAL frame_max={normal_frame}")
 
-    await init_test(dut, difficulty_bits=0b11, seed_bits=0b1111)
+    await apply_reset(dut, difficulty_bits=0b11, seed_bits=0b1111)
     insane_frame = frame_max(dut)
     dut._log.info(f"[INFO] INSANE frame_max={insane_frame}")
 
@@ -294,7 +359,9 @@ async def test_difficulty_modes(dut):
 
 @cocotb.test()
 async def test_score_increment(dut):
-    await init_test(dut, difficulty_bits=0b00, seed_bits=0b1111)
+    await start_clock(dut)
+    await apply_reset(dut, difficulty_bits=0b00, seed_bits=0b1111)
+
     await hold_jump_until_start(dut)
     await autoplay_until_score_increase(dut, timeout_cycles=1500)
     assert score(dut) >= 1, f"[FAIL] Score did not increment, got {score(dut)}"
@@ -303,7 +370,9 @@ async def test_score_increment(dut):
 
 @cocotb.test()
 async def test_high_score_persistence(dut):
-    await init_test(dut, difficulty_bits=0b00, seed_bits=0b1111)
+    await start_clock(dut)
+    await apply_reset(dut, difficulty_bits=0b00, seed_bits=0b1111)
+
     await hold_jump_until_start(dut)
     await autoplay_until_score_at_least(dut, target=1, timeout_cycles=5000)
 
@@ -318,58 +387,48 @@ async def test_high_score_persistence(dut):
     await pulse_game_reset(dut, cycles=2)
     await ClockCycles(dut.clk, 10)
 
+    expected = expected_idle_output(max_score(dut))
     assert state(dut) == S_IDLE, f"[FAIL] Expected IDLE after reset, got {state(dut)}"
-    assert has_bit(uo(dut), SEG_DP), f"[FAIL] Idle high-score display should have DP on, got 0x{uo(dut):02X}"
+    assert uo(dut) == expected, f"[FAIL] Idle high-score display mismatch: expected 0x{expected:02X}, got 0x{uo(dut):02X}"
     assert max_score(dut) >= 1, f"[FAIL] High score did not persist, got {max_score(dut)}"
     dut._log.info("[PASS] High score persistence test passed")
 
 
 @cocotb.test()
 async def test_jump_cooldown(dut):
-    await init_test(dut, difficulty_bits=0b00, seed_bits=0b1111)
+    await start_clock(dut)
+    await apply_reset(dut, difficulty_bits=0b00, seed_bits=0b1111)
+
     await hold_jump_until_start(dut)
+    await wait_for_run_ready(dut, timeout_cycles=300)
 
-    while state(dut) != S_RUN:
-        await RisingEdge(dut.clk)
+    await pulse_jump(dut, cycles=2)
+    await wait_for_jump_entry(dut, timeout_cycles=30)
 
-    await pulse_jump(dut, cycles=1)
+    await wait_until_not_jump(dut, timeout_cycles=100)
+    assert cooldown(dut) > 0, f"[FAIL] Cooldown should be >0 after jump, got {cooldown(dut)}"
 
-    jumped = False
-    for _ in range(50):
-        await RisingEdge(dut.clk)
-        if state(dut) == S_JUMP:
-            jumped = True
-            break
-
-    assert jumped, "[FAIL] First jump did not enter S_JUMP"
-
-    while state(dut) == S_JUMP:
-        await RisingEdge(dut.clk)
-
-    cd = cooldown(dut)
-    assert cd > 0, f"[FAIL] Cooldown should be >0 after jump, got {cd}"
-
-    await pulse_jump(dut, cycles=1)
+    await pulse_jump(dut, cycles=2)
     await ClockCycles(dut.clk, 2)
-
     assert state(dut) != S_JUMP, "[FAIL] Jump should be blocked during cooldown"
 
     while cooldown(dut) != 0:
         await RisingEdge(dut.clk)
 
-    await pulse_jump(dut, cycles=1)
-    await ClockCycles(dut.clk, 2)
+    while state(dut) != S_RUN:
+        await RisingEdge(dut.clk)
 
-    valid_second_jump = state(dut) == S_JUMP or has_bit(uo(dut), SEG_B)
-    assert valid_second_jump, "[FAIL] Jump should work again after cooldown"
+    await pulse_jump(dut, cycles=2)
+    await wait_for_jump_entry(dut, timeout_cycles=30)
     dut._log.info("[PASS] Jump cooldown test passed")
 
 
 @cocotb.test()
 async def test_output_sanity(dut):
-    await init_test(dut, difficulty_bits=0b00, seed_bits=0b1111)
+    await start_clock(dut)
+    await apply_reset(dut, difficulty_bits=0b00, seed_bits=0b1111)
 
-    assert uo(dut) == IDLE_ZERO_WITH_DP, f"[FAIL] Idle output wrong: 0x{uo(dut):02X}"
+    assert uo(dut) == expected_idle_output(0), f"[FAIL] Idle output wrong: 0x{uo(dut):02X}"
 
     await hold_jump_until_start(dut)
     await ClockCycles(dut.clk, 5)
@@ -380,5 +439,4 @@ async def test_output_sanity(dut):
 
     await wait_for_hit_and_score(dut)
     assert uo(dut) != ALL_ON, "[FAIL] Score output should not remain all-on"
-
     dut._log.info("[PASS] Output sanity test passed")
