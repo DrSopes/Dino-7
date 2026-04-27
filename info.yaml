@@ -3,18 +3,17 @@ project:
   title:        "Dino-7: 7-Segment Runner Game"
   author:       "Dr Sopes"
   discord:      ""
-  description:  "A minimalist single-button endless runner game inspired by the Chrome Dinosaur game, rendered on a single 7-segment display."
+  description:  "A minimalist single-button endless runner game inspired by the Chrome Dinosaur game, rendered on a single 7-segment display. Features an LFSR of 32 bits, Hardware Difficulty Selector, and a High Score memory."
   language:     "Verilog"
   clock_hz:     25000000
 
   # How many tiles your design occupies? A single tile is about 167x108 uM.
-  tiles: "1x1"          # <--- CAMP OBLIGATORI AFEGIT
+  tiles: "1x1"
 
   # Your top module name must start with "tt_um_". Make it unique by including your github username
   top_module:   "tt_um_dino7"
 
   # List your project's source files here.
-  # Source files must be in ./src and you must list each source file separately
   source_files:
     - "tt_um_dino7.v"
 
@@ -38,7 +37,7 @@ pinout:
   uo[4]: "Segment e – player on ground"
   uo[5]: "Segment f – obstacle close (collision zone)"
   uo[6]: "Segment g – obstacle mid (approaching)"
-  uo[7]: "Decimal point – jump cooldown active"
+  uo[7]: "Decimal point – jump cooldown active / High Score indicator"
 
   # Bidirectional pins
   uio[0]: ""
@@ -51,4 +50,4 @@ pinout:
   uio[7]: ""
 
 # Do not change!
-yaml_version: 6        # <--- CAMP OBLIGATORI AFEGIT
+yaml_version: 6
