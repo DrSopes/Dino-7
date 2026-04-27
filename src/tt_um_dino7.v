@@ -17,7 +17,6 @@ module tt_um_dino7 (
     // Satisfer el linter (excloem uio_in[7] perquè ara l'usarem)
     wire _unused = &{ena, uio_in[6:0], 1'b0};
 
-    // Mapping d'entrades
     wire jump_btn = ui_in[0];
     wire game_rst = ui_in[1];
     wire [1:0] difficulty = ui_in[3:2]; 
@@ -73,7 +72,9 @@ module tt_um_dino7 (
             clk_div <= 0;
             score <= 0;
             max_score <= 0;
-            obs_c <= 0; obs_g <= 0; obs_f <= 0;
+            obs_c <= 0;
+            obs_g <= 0;
+            obs_f <= 0;
             jump_timer <= 0;
             cooldown_timer <= 0;
             lfsr <= {28'hA5A5A5A, seed};
@@ -84,7 +85,9 @@ module tt_um_dino7 (
             state <= S_IDLE;
             clk_div <= 0;
             score <= 0;
-            obs_c <= 0; obs_g <= 0; obs_f <= 0;
+            obs_c <= 0;
+            obs_g <= 0;
+            obs_f <= 0;
             jump_timer <= 0;
             cooldown_timer <= 0;
             lfsr <= {lfsr[27:0], seed}; 
@@ -94,6 +97,12 @@ module tt_um_dino7 (
         end else begin
             clk_div <= clk_div + 1;
 
+            // Start from idle immediately
+            if (state == S_IDLE && jump_btn) begin
+                state <= S_RUN;
+            end
+
+            // Jump capture for responsiveness
             if (state == S_RUN && jump_btn && cooldown_timer == 0) begin
                 state <= S_JUMP;
                 jump_timer <= 3;
@@ -105,7 +114,6 @@ module tt_um_dino7 (
 
                 case (state)
                     S_IDLE: begin
-                        if (jump_btn) state <= S_RUN;
                     end
 
                     S_RUN, S_JUMP: begin
@@ -115,33 +123,37 @@ module tt_um_dino7 (
 
                         if (obs_g && state == S_RUN) begin
                             state <= S_HIT;
-                            blink_timer <= 5; 
+                            blink_timer <= 5;
                             if (score > max_score) max_score <= score;
                         end else begin
                             if (obs_f && state == S_JUMP) begin
-                                if (score < 9) score <= score + 1;
-                                if (score[1:0] == 2'b11 && frame_max > speed_step) begin
+                                if (score < 9)
+                                    score <= score + 1;
+                                if (score[1:0] == 2'b11 && frame_max > speed_step)
                                     frame_max <= frame_max - speed_step;
-                                end
                             end
                         end
 
                         if (state == S_JUMP) begin
-                            if (jump_timer > 0) jump_timer <= jump_timer - 1;
-                            else begin
+                            if (jump_timer > 0) begin
+                                jump_timer <= jump_timer - 1;
+                            end else begin
                                 state <= S_RUN;
                                 cooldown_timer <= 2;
                             end
                         end else begin
-                            if (cooldown_timer > 0) cooldown_timer <= cooldown_timer - 1;
+                            if (cooldown_timer > 0)
+                                cooldown_timer <= cooldown_timer - 1;
                         end
                     end
 
                     S_HIT: begin
-                        if (blink_timer > 0) blink_timer <= blink_timer - 1;
-                        else state <= S_SCORE;
+                        if (blink_timer > 0)
+                            blink_timer <= blink_timer - 1;
+                        else
+                            state <= S_SCORE;
                     end
-                    
+
                     S_SCORE: begin
                         blink_timer <= blink_timer + 1;
                     end
@@ -154,12 +166,21 @@ module tt_um_dino7 (
 
     function [6:0] seg7;
         input [3:0] val;
-        case(val)
-            0: seg7 = 7'b0111111; 1: seg7 = 7'b0000110; 2: seg7 = 7'b1011011;
-            3: seg7 = 7'b1001111; 4: seg7 = 7'b1100110; 5: seg7 = 7'b1101101;
-            6: seg7 = 7'b1111101; 7: seg7 = 7'b0000111; 8: seg7 = 7'b1111111;
-            9: seg7 = 7'b1101111; default: seg7 = 7'b0000000;
-        endcase
+        begin
+            case (val)
+                0: seg7 = 7'b0111111;
+                1: seg7 = 7'b0000110;
+                2: seg7 = 7'b1011011;
+                3: seg7 = 7'b1001111;
+                4: seg7 = 7'b1100110;
+                5: seg7 = 7'b1101101;
+                6: seg7 = 7'b1111101;
+                7: seg7 = 7'b0000111;
+                8: seg7 = 7'b1111111;
+                9: seg7 = 7'b1101111;
+                default: seg7 = 7'b0000000;
+            endcase
+        end
     endfunction
 
     reg [7:0] out;
@@ -169,17 +190,19 @@ module tt_um_dino7 (
         end else if (state == S_HIT) begin
             out = 8'b11111111;
         end else if (state == S_SCORE) begin
-            if (blink_timer[3]) out = {1'b1, seg7(max_score)};
-            else                out = {1'b0, seg7(score)};
+            if (blink_timer[3])
+                out = {1'b1, seg7(max_score)};
+            else
+                out = {1'b0, seg7(score)};
         end else begin
-            out[0] = 1'b0;                 
-            out[1] = (state == S_JUMP);    
-            out[2] = obs_c;                
-            out[3] = 1'b1;                 
-            out[4] = (state == S_RUN);     
-            out[5] = obs_f;                
-            out[6] = obs_g;                
-            out[7] = (cooldown_timer > 0); 
+            out[0] = 1'b0;
+            out[1] = (state == S_JUMP);
+            out[2] = obs_c;
+            out[3] = 1'b1;
+            out[4] = (state == S_RUN);
+            out[5] = obs_f;
+            out[6] = obs_g;
+            out[7] = (cooldown_timer > 0);
         end
     end
 

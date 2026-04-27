@@ -1,3 +1,4 @@
+import os
 import cocotb
 from cocotb.clock import Clock
 from cocotb.triggers import ClockCycles, RisingEdge
@@ -43,7 +44,6 @@ async def hard_reset(dut):
     dut._log.info("[SETUP] Applying hard reset")
     dut.rst_n.value = 0
     dut.ena.value = 1
-    dut.ui_in.value = 0
     dut.uio_in.value = 0
     await ClockCycles(dut.clk, 10)
     dut.rst_n.value = 1
