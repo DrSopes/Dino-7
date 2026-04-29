@@ -45,12 +45,12 @@ jobs:
         uses: actions/checkout@v6
         with:
           submodules: recursive
-
+          
       - name: GL extended test
         uses: TinyTapeout/tt-gds-action/gl_test@ttgf26a
         env:
           GL_EXTENDED: "1"
-          GL_TIMEOUT_SCALE: "500"
+          GL_TIMEOUT_SCALE: "250000" # Uns ~30 milions de cicles de marge, trigarà bastant en CI.
 
   viewer:
     needs: gds
