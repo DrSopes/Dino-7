@@ -12,7 +12,18 @@ jobs:
         uses: actions/checkout@v6
         with:
           submodules: recursive
+          
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          
+      - name: Install dependencies for Logo
+        run: pip install gdspy Pillow
 
+      - name: Generate Logo GDS
+        run: python logo.py
+        
       - name: Build GDS
         uses: TinyTapeout/tt-gds-action@ttgf26a
         with:
