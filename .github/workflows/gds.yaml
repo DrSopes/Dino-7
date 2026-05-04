@@ -22,7 +22,7 @@ jobs:
         run: pip install gdspy Pillow
 
       - name: Generate Logo GDS
-        run: python logo.py
+        run: python src/logo.py
         
       - name: Build GDS
         uses: TinyTapeout/tt-gds-action@ttgf26a
