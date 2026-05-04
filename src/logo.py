@@ -14,6 +14,17 @@ def create_logo_gds(image_path, output_gds):
     
     # Carregar la imatge i convertir-la a escala de grisos
     img = Image.open(image_path).convert('L')
+    
+    # REDUCCIÓ DE MIDA (Nou!): 
+    # El teu logo era massa gran (1774 px). El reduïm a un màxim de 60 píxels d'amplada 
+    # per assegurar-nos que cap correctament i que no saturen l'enrutador.
+    original_width, original_height = img.size
+    target_width = 60
+    target_height = int((target_width / original_width) * original_height)
+    
+    # Redimensionem amb filtre de qualitat alta (LANCZOS substitueix l'antic ANTIALIAS)
+    img = img.resize((target_width, target_height), Image.Resampling.LANCZOS)
+    
     pixels = img.load()
     width, height = img.size
     
@@ -21,13 +32,12 @@ def create_logo_gds(image_path, output_gds):
     lib = gdspy.GdsLibrary()
     cell = lib.new_cell('LOGO_MACRO')
     
-    # Mida del píxel en micròmetres (µm). 0.5 µm és prou petit.
-    # Si la teva imatge fa 40x40 píxels, el logo farà 20x20 µm.
+    # Mida del píxel en micròmetres (µm). 0.5 µm és prou petit i segur.
     PIXEL_SIZE = 0.5
     
-    # Posició del logo respecte a la cantonada inferior esquerra del teu disseny
-    OFFSET_X = 10.0 # µm
-    OFFSET_Y = 10.0 # µm
+    # Posició del logo respecte a la cantonada inferior esquerra de la MACRO
+    OFFSET_X = 0.0 # µm
+    OFFSET_Y = 0.0 # µm
     
     for y in range(height):
         for x in range(width):
@@ -42,7 +52,8 @@ def create_logo_gds(image_path, output_gds):
                 cell.add(rect)
                 
     lib.write_gds(output_gds)
-    print(f"Generat {output_gds} amb èxit! Mida: {width}x{height} píxels.")
+    print(f"Generat {output_gds} amb èxit! Mida redimensionada: {width}x{height} píxels.")
 
 if __name__ == "__main__":
+    # Com que executem des de l'arrel del repo via GitHub Actions, les rutes han de ser així:
     create_logo_gds("src/logo.png", "src/logo_macro.gds")
