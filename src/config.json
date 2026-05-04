@@ -71,13 +71,14 @@
   "//": "Only export pin area in LEF (without any connected nets)",
   "MAGIC_WRITE_LEF_PINONLY": 1,
   
-  "EXTRA_GDS_FILES": ["dir::logo_macro.gds"],
+  "EXTRA_GDS": ["dir::logo_macro.gds"],
   "MACROS": {
     "logo_macro": {
-      "gds": "dir::logo_macro.gds",
+      "gds": ["dir::logo_macro.gds"],
+      "lef": ["dir::logo_macro.lef"],
       "instances": {
         "logo0": {
-          "location": [240, 20],
+          "location": [220, 20],
           "orientation": "N"
         }
       }
@@ -85,3 +86,5 @@
   }
   
 }
+  
+
