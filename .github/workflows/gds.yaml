@@ -23,7 +23,13 @@ jobs:
 
       - name: Generate Logo GDS
         run: python src/logo.py
-        
+      
+      - name: Guarda el Logo GDS
+        uses: actions/upload-artifact@v4
+        with:
+          name: logo-gds-generat
+          path: src/logo_macro.gds
+          
       - name: Build GDS
         uses: TinyTapeout/tt-gds-action@ttgf26a
         with:
