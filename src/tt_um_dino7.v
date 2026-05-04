@@ -46,6 +46,7 @@ module tt_um_dino7 (
     reg [23:0] init_base_speed;
     reg [23:0] init_speed_step;
 
+    // Velocitats reals de joc. COCOTB_SIM s'utilitza nomes en tests RTL.
     always @(*) begin
         `ifdef COCOTB_SIM
             case (difficulty)
