@@ -1,5 +1,5 @@
 import gdspy
-from PIL import Image
+from PIL import Image, ImageOps
 import os
 
 def create_logo_gds(image_path, output_gds):
@@ -7,43 +7,47 @@ def create_logo_gds(image_path, output_gds):
         print(f"Error: No s'ha trobat la imatge {image_path}")
         return
 
-    # GF180MCU: La capa Metal 5 és la 81, tipus 0.
-    # Utilitzem Met5 perquè està per sobre de les cèl·lules estàndard i no sol interferir.
+    # GF180MCU: Capa Metal 5 (81, datatype 0)
     LAYER = 81
     DATATYPE = 0
     
-    # Carregar la imatge i convertir-la a escala de grisos
+    # Carregar imatge en escala de grisos
     img = Image.open(image_path).convert('L')
     
-    # REDUCCIÓ DE MIDA (Nou!): 
-    # El teu logo era massa gran (1774 px). El reduïm a un màxim de 60 píxels d'amplada 
-    # per assegurar-nos que cap correctament i que no saturen l'enrutador.
+    # Treure l'espai en blanc inútil dels voltants perquè agafi només el dibuix
+    img = ImageOps.invert(img)
+    bbox = img.getbbox()
+    if bbox:
+        img = img.crop(bbox)
+    img = ImageOps.invert(img)
+    
+    # REDUCCIÓ DE MIDA: La pujem de 60 a 200 per tenir moltíssima més resolució.
+    # El disseny serà molt més gran i nítid
     original_width, original_height = img.size
-    target_width = 60
+    target_width = 200
     target_height = int((target_width / original_width) * original_height)
     
-    # Redimensionem amb filtre de qualitat alta (LANCZOS substitueix l'antic ANTIALIAS)
     img = img.resize((target_width, target_height), Image.Resampling.LANCZOS)
+    
+    # Opcional: Aumentar el contrast (binalitzar de manera agressiva)
+    img = img.point(lambda p: 255 if p > 128 else 0)
     
     pixels = img.load()
     width, height = img.size
     
-    # Crear llibreria i cèl·lula GDS
     lib = gdspy.GdsLibrary()
     cell = lib.new_cell('LOGO_MACRO')
     
-    # Mida del píxel en micròmetres (µm). 0.5 µm és prou petit i segur.
-    PIXEL_SIZE = 0.5
-    
-    # Posició del logo respecte a la cantonada inferior esquerra de la MACRO
-    OFFSET_X = 0.0 # µm
-    OFFSET_Y = 0.0 # µm
+    # Mida del rectangle base (el fem una mica més petit perquè tot càpiga en l'espai TT)
+    # Si d'amplada fem 200 px * 0.4 µm = 80 µm d'amplada total (cap perfectament al xip!)
+    PIXEL_SIZE = 0.4
+    OFFSET_X = 10.0 # Separat dels marges
+    OFFSET_Y = 10.0
     
     for y in range(height):
         for x in range(width):
-            # Si el píxel és fosc (menys de 128), dibuixem metall
+            # El blanc és 255, el negre és 0
             if pixels[x, y] < 128:
-                # La coordenada Y a les imatges va de dalt a baix, a GDS de baix a dalt
                 rect = gdspy.Rectangle(
                     (OFFSET_X + (x * PIXEL_SIZE), OFFSET_Y + ((height - y) * PIXEL_SIZE)),
                     (OFFSET_X + ((x + 1) * PIXEL_SIZE), OFFSET_Y + ((height - y + 1) * PIXEL_SIZE)),
@@ -52,8 +56,7 @@ def create_logo_gds(image_path, output_gds):
                 cell.add(rect)
                 
     lib.write_gds(output_gds)
-    print(f"Generat {output_gds} amb èxit! Mida redimensionada: {width}x{height} píxels.")
+    print(f"Generat {output_gds} amb èxit! Resolució augmentada a: {width}x{height} píxels.")
 
 if __name__ == "__main__":
-    # Com que executem des de l'arrel del repo via GitHub Actions, les rutes han de ser així:
     create_logo_gds("src/logo.png", "src/logo_macro.gds")
