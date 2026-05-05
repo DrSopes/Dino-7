@@ -68,5 +68,5 @@
   "MAGIC_WRITE_LEF_PINONLY": 1,
 
   "//": "Extra GDS merged into final output",
-  "EXTRA_GDS": ["dir::logo_macro.gds"],
+  "EXTRA_GDS": ["dir::logo_macro.gds"]
 }
