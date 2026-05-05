@@ -48,11 +48,11 @@ module tt_um_dino7 (
     reg [2:0] cooldown_timer;
     reg [4:0] blink_timer;
 
-    // Descodificador de dificultat per Hardware
+    // Descodificador de dificultat per Hardware (ara és combinacional estricte a la variable input)
     reg [23:0] init_base_speed;
     reg [23:0] init_speed_step;
 
-    always @(*) begin
+    always @(difficulty) begin
         `ifdef COCOTB_SIM
             init_base_speed = 24'd10;
             init_speed_step = 24'd2;
@@ -115,7 +115,7 @@ module tt_um_dino7 (
                         // Impedeix spawn d'obstacle si n'hi ha un d'acostant-se
                         obs_c <= (lfsr[0] & lfsr[1] & lfsr[2]) & !obs_c & !obs_g; 
 
-                        // Detecció de col·lisió: El jugador a terra i l'obstacle a la zona "f" o "g" depenent del temps
+                        // Detecció de col·lisió: El jugador a terra i l'obstacle a la zona "f"
                         if (obs_f && state == S_RUN) begin
                             state <= S_HIT;
                             blink_timer <= 5; 
