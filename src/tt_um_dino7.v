@@ -38,7 +38,7 @@ module tt_um_dino7 (
     reg [23:0] speed_step;
     wire frame_tick = (clk_div >= frame_max);
 
-    reg obs_c, obs_g, obs_f;
+    reg obs_c, obs_g, obs_f, obs_passed;
     reg [2:0] jump_timer;
     reg [2:0] cooldown_timer;
     reg [4:0] blink_timer;
@@ -73,6 +73,7 @@ module tt_um_dino7 (
             obs_c <= 0;
             obs_g <= 0;
             obs_f <= 0;
+            obs_passed <= 0;
             jump_timer <= 0;
             cooldown_timer <= 0;
             lfsr <= {28'hA5A5A5A, seed};
@@ -86,6 +87,7 @@ module tt_um_dino7 (
             obs_c <= 0;
             obs_g <= 0;
             obs_f <= 0;
+            obs_passed <= 0;
             jump_timer <= 0;
             cooldown_timer <= 0;
             lfsr <= {lfsr[27:0], seed};
@@ -113,6 +115,7 @@ module tt_um_dino7 (
                     end
 
                     S_RUN, S_JUMP: begin
+                        obs_passed <= obs_f;
                         obs_f <= obs_g;
                         obs_g <= obs_c;
                         obs_c <= (lfsr[0] & lfsr[1] & lfsr[2]) & !obs_c & !obs_g;
@@ -123,7 +126,7 @@ module tt_um_dino7 (
                             if (score > max_score)
                                 max_score <= score;
                         end else begin
-                            if (obs_f && state == S_JUMP) begin
+                            if (obs_passed && state == S_JUMP) begin
                                 if (score < 9)
                                     score <= score + 1;
                                 if (score[1:0] == 2'b11 && frame_max > speed_step)
@@ -195,7 +198,7 @@ module tt_um_dino7 (
             out[0] = obs_c;
             out[1] = obs_g;
             out[2] = (state == S_RUN);
-            out[3] = obs_f;
+            out[3] = obs_passed;
             out[4] = (state == S_JUMP);
             out[5] = 1'b0;
             out[6] = obs_f;
