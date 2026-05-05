@@ -69,18 +69,4 @@
 
   "//": "Extra GDS merged into final output",
   "EXTRA_GDS": ["dir::logo_macro.gds"],
-
-  "//": "Custom decorative logo macro",
-  "MACROS": {
-    "logo_macro": {
-      "gds": ["dir::logo_macro.gds"],
-      "lef": ["dir::logo_macro.lef"],
-      "instances": {
-        "logo0": {
-          "location": [220, 20],
-          "orientation": "N"
-        }
-      }
-    }
-  }
 }
