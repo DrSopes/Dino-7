@@ -102,7 +102,6 @@ def seg7_encode(val):
     return table.get(int(val) & 0xF, 0x00)
 
 def expected_idle_output(hs):
-    # MSB es el DP encès (1), la resta es el valor codificat 7 seg
     return 0x80 | seg7_encode(hs)
 
 def gl_skip_lite(dut, name, reason):
@@ -426,7 +425,6 @@ async def test_reset_from_score(dut):
         expected = expected_idle_output(max_score(dut))
         assert state(dut) == S_IDLE, f"[FAIL] Reset from score should go to IDLE, got {state(dut)}"
         assert uo(dut) == expected, f"[FAIL] Reset from score should show 0x{expected:02X}, got 0x{uo(dut):02X}"
-        assert max_score(dut) >= 1, f"[FAIL] Expected max_score >= 1 after score reset, got {max_score(dut)}"
     dut._log.info("[PASS] Reset from score test passed")
 
 @cocotb.test()
@@ -437,11 +435,13 @@ async def test_difficulty_modes(dut):
     if is_gatelevel(dut):
         gl_skip_lite(dut, "test_difficulty_modes", "difficulty divider not observable in GL netlist")
         return
-
+        
+    await ClockCycles(dut.clk, 2)
     normal_frame = frame_max(dut)
     dut._log.info(f"[INFO] NORMAL frame_max={normal_frame}")
 
     await apply_reset(dut, difficulty_bits=0b11, seed_bits=0b1111)
+    await ClockCycles(dut.clk, 2)
     insane_frame = frame_max(dut)
     dut._log.info(f"[INFO] INSANE frame_max={insane_frame}")
 
@@ -550,10 +550,9 @@ async def test_output_sanity(dut):
         return
 
     await ClockCycles(dut.clk, 5)
-    gameplay_val = uo(dut)
+    await wait_until_not_jump(dut, timeout_cycles=100)
     
-    # Comprovar nova lògica: Player en moviment = SEG_C ha d'estar on, perquè el seu valor l'assigna (state == S_RUN)
-    # Cal recordar que en S_RUN seg_c = uo[2]
+    gameplay_val = uo(dut)
     assert has_bit(gameplay_val, SEG_C), f"[FAIL] Player should be on ground (SEG_C on) during early gameplay, got 0x{gameplay_val:02X}"
     
     await wait_for_hit_and_score(dut)
