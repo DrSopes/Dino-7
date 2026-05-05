@@ -18,6 +18,55 @@ jobs:
         with:
           pdk: gf180mcuD
 
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Install logo merge packages
+        shell: bash
+        run: |
+          python3 -m pip install --upgrade pip
+          python3 -m pip install gdstk gdspy pillow numpy
+
+      - name: Validate logo inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f "runs/wokwi/results/final/gds/tt_um_dino7.gds"
+          test -f "scripts/merge_logo.py"
+          test -f "logo.py"
+          test -f "art/logo.png"
+
+      - name: Merge logo from PNG
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/merge_logo.py \
+            --base-gds runs/wokwi/results/final/gds/tt_um_dino7.gds \
+            --output-gds runs/wokwi/results/final/gds/tt_um_dino7.logo.gds \
+            --target-cell tt_um_dino7 \
+            --logo-png art/logo.png \
+            --png-to-gds-script logo.py \
+            --logo-cell LOGO_MACRO \
+            --x 5 \
+            --y 5 \
+            --scale 1.0 \
+            --rotation 0.0 \
+            --layer 81 \
+            --datatype 0 \
+            --threshold 128 \
+            --pixel-size 0.4 \
+            --target-width 200 \
+            --offset-x 10.0 \
+            --offset-y 10.0
+
+      - name: Upload merged GDS
+        uses: actions/upload-artifact@v4
+        with:
+          name: merged-gds
+          path: runs/wokwi/results/final/gds/tt_um_dino7.logo.gds
+
   precheck:
     needs: gds
     runs-on: ubuntu-24.04
@@ -41,7 +90,7 @@ jobs:
     needs: gds
     runs-on: ubuntu-24.04
     permissions:
-      pages: write      # to deploy to Pages
-      id-token: write   # to verify the deployment originates from an appropriate source
+      pages: write
+      id-token: write
     steps:
       - uses: TinyTapeout/tt-gds-action/viewer@ttgf26a
