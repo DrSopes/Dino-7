@@ -1,0 +1,140 @@
+name: logo-integration
+
+on:
+  workflow_dispatch:
+    inputs:
+      base_gds:
+        description: Path del GDS final del projecte
+        required: true
+        default: runs/wokwi/results/final/gds/tt_um_dino7.gds
+      output_gds:
+        description: Path del GDS final amb logo
+        required: true
+        default: runs/wokwi/results/final/gds/tt_um_dino7.logo.gds
+      target_cell:
+        description: Nom del top cell
+        required: true
+        default: tt_um_dino7
+      logo_gds:
+        description: Path opcional del logo GDS
+        required: false
+        default: art/logo.gds
+      logo_png:
+        description: Path opcional del logo PNG
+        required: false
+        default: art/logo.png
+      logo_cell:
+        description: Nom de la cel·la del logo
+        required: true
+        default: LOGO_MACRO
+      x:
+        description: Coordenada X en micres
+        required: true
+        default: '5'
+      y:
+        description: Coordenada Y en micres
+        required: true
+        default: '5'
+      scale:
+        description: Escala del logo
+        required: true
+        default: '1.0'
+      rotation:
+        description: Rotació en radians
+        required: true
+        default: '0.0'
+      layer:
+        description: Layer per PNG->GDS
+        required: true
+        default: '81'
+      datatype:
+        description: Datatype per PNG->GDS
+        required: true
+        default: '0'
+      threshold:
+        description: Threshold de binarització
+        required: true
+        default: '128'
+      pixel_size:
+        description: Mida de píxel en micres
+        required: true
+        default: '0.4'
+      target_width:
+        description: Amplada del raster intern del logo
+        required: true
+        default: '200'
+      offset_x:
+        description: Offset X dins la cel·la del logo
+        required: true
+        default: '10.0'
+      offset_y:
+        description: Offset Y dins la cel·la del logo
+        required: true
+        default: '10.0'
+
+jobs:
+  merge-logo:
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/efabless/openlane2:latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Python packages
+        run: |
+          python3 -m pip install --upgrade pip
+          python3 -m pip install gdstk gdspy pillow numpy
+
+      - name: Validate inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f "${{ github.event.inputs.base_gds }}"
+          test -f "scripts/merge_logo.py"
+          test -f "logo.py"
+          if [[ -f "${{ github.event.inputs.logo_gds }}" ]]; then
+            echo "Using GDS logo"
+          elif [[ -f "${{ github.event.inputs.logo_png }}" ]]; then
+            echo "Using PNG logo"
+          else
+            echo "ERROR: no existeix ni logo_gds ni logo_png" >&2
+            exit 1
+          fi
+
+      - name: Merge logo into GDS
+        shell: bash
+        run: |
+          set -euo pipefail
+          ARGS=(
+            --base-gds "${{ github.event.inputs.base_gds }}"
+            --output-gds "${{ github.event.inputs.output_gds }}"
+            --target-cell "${{ github.event.inputs.target_cell }}"
+            --logo-cell "${{ github.event.inputs.logo_cell }}"
+            --x "${{ github.event.inputs.x }}"
+            --y "${{ github.event.inputs.y }}"
+            --scale "${{ github.event.inputs.scale }}"
+            --rotation "${{ github.event.inputs.rotation }}"
+            --layer "${{ github.event.inputs.layer }}"
+            --datatype "${{ github.event.inputs.datatype }}"
+            --threshold "${{ github.event.inputs.threshold }}"
+            --pixel-size "${{ github.event.inputs.pixel_size }}"
+            --target-width "${{ github.event.inputs.target_width }}"
+            --offset-x "${{ github.event.inputs.offset_x }}"
+            --offset-y "${{ github.event.inputs.offset_y }}"
+            --png-to-gds-script "logo.py"
+          )
+
+          if [[ -f "${{ github.event.inputs.logo_gds }}" ]]; then
+            ARGS+=(--logo-gds "${{ github.event.inputs.logo_gds }}")
+          else
+            ARGS+=(--logo-png "${{ github.event.inputs.logo_png }}")
+          fi
+
+          python3 scripts/merge_logo.py "${ARGS[@]}"
+
+      - name: Upload merged GDS
+        uses: actions/upload-artifact@v4
+        with:
+          name: merged-gds
+          path: ${{ github.event.inputs.output_gds }}
