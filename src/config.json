@@ -72,7 +72,6 @@
   "MACROS": {
     "logo_macro": {
       "gds": ["dir::logo_macro.gds"],
-      "lef": ["dir::logo_macro.lef"],
       "instances": {
         "logo0": {
           "location": [220, 20],
