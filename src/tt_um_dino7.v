@@ -206,5 +206,11 @@ module tt_um_dino7 (
     end
 
     assign uo_out = out;
+    
+    logo_macro logo_instance ();
 
+endmodule
+
+module logo_macro ();
+  // Aquest mòdul està literalment buit
 endmodule
