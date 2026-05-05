@@ -68,5 +68,17 @@
   "MAGIC_WRITE_LEF_PINONLY": 1,
 
   "//": "Extra GDS merged into final output",
-  "EXTRA_GDS": ["dir::logo_macro.gds"]
+  "EXTRA_GDS": ["dir::logo_macro.gds"],
+  "MACROS": {
+    "logo_macro": {
+      "gds": ["dir::logo_macro.gds"],
+      "lef": ["dir::logo_macro.lef"],
+      "instances": {
+        "logo0": {
+          "location": [220, 20],
+          "orientation": "N"
+        }
+      }
+    }
+  }
 }
