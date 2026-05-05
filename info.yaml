@@ -1,17 +1,18 @@
+--- 
 # Tiny Tapeout project information
 project:
-  title:        "Dino-7: 7-Segment Runner Game"
-  author:       "Dr Sopes"
-  discord:      ""
-  description:  "A minimalist single-button endless runner game inspired by the Chrome Dinosaur game, rendered on a single 7-segment display. Features an LFSR of 32 bits, Hardware Difficulty Selector, and a High Score memory."
-  language:     "Verilog"
-  clock_hz:     25000000
+  title: "Dino-7: 7-Segment Runner Game"
+  author: "Dr Sopes"
+  discord: ""
+  description: "A minimalist single-button endless runner game inspired by the Chrome Dinosaur game, rendered on a single 7-segment display. Features an LFSR of 32 bits, Hardware Difficulty Selector, and a High Score memory."
+  language: "Verilog"
+  clock_hz: 25000000
 
   # How many tiles your design occupies? A single tile is about 167x108 uM.
   tiles: "1x1"
 
   # Your top module name must start with "tt_um_". Make it unique by including your github username
-  top_module:   "tt_um_dino7"
+  top_module: "tt_um_dino7"
 
   # List your project's source files here.
   source_files:
@@ -29,14 +30,14 @@ pinout:
   ui[6]: "LFSR seed bit 2"
   ui[7]: "LFSR seed bit 3"
 
-  # Outputs
-  uo[0]: "Segment a (unused)"
-  uo[1]: "Segment b – player in air (jumping)"
-  uo[2]: "Segment c – obstacle far (spawning)"
-  uo[3]: "Segment d – ground (always on)"
-  uo[4]: "Segment e – player on ground"
-  uo[5]: "Segment f – obstacle close (collision zone)"
-  uo[6]: "Segment g – obstacle mid (approaching)"
+  # Outputs (Horizontal mapping)
+  uo[0]: "Segment a – obstacle far (spawning)"
+  uo[1]: "Segment b – obstacle mid (approaching)"
+  uo[2]: "Segment c – player on ground"
+  uo[3]: "Segment d – obstacle has passed"
+  uo[4]: "Segment e – player in air (jumping)"
+  uo[5]: "Segment f – unused"
+  uo[6]: "Segment g – obstacle close (collision zone)"
   uo[7]: "Decimal point – jump cooldown active / High Score indicator"
 
   # Bidirectional pins

@@ -46,8 +46,7 @@ module tt_um_dino7 (
     reg [23:0] init_base_speed;
     reg [23:0] init_speed_step;
 
-    // Velocitats reals de joc. COCOTB_SIM s'utilitza nomes en tests RTL.
-    always @(*) begin
+    always @(difficulty) begin
         `ifdef COCOTB_SIM
             case (difficulty)
                 2'b00: begin init_base_speed = 24'd10; init_speed_step = 24'd2; end
@@ -96,12 +95,10 @@ module tt_um_dino7 (
         end else begin
             clk_div <= clk_div + 1;
 
-            // Start from idle immediately
             if (state == S_IDLE && jump_btn) begin
                 state <= S_RUN;
             end
 
-            // Jump capture for responsiveness
             if (state == S_RUN && jump_btn && cooldown_timer == 0) begin
                 state <= S_JUMP;
                 jump_timer <= 3;
@@ -123,7 +120,8 @@ module tt_um_dino7 (
                         if (obs_g && state == S_RUN) begin
                             state <= S_HIT;
                             blink_timer <= 5;
-                            if (score > max_score) max_score <= score;
+                            if (score > max_score)
+                                max_score <= score;
                         end else begin
                             if (obs_f && state == S_JUMP) begin
                                 if (score < 9)
@@ -194,13 +192,13 @@ module tt_um_dino7 (
             else
                 out = {1'b0, seg7(score)};
         end else begin
-            out[0] = 1'b0;
-            out[1] = (state == S_JUMP);
-            out[2] = obs_c;
-            out[3] = 1'b1;
-            out[4] = (state == S_RUN);
-            out[5] = obs_f;
-            out[6] = obs_g;
+            out[0] = obs_c;
+            out[1] = obs_g;
+            out[2] = (state == S_RUN);
+            out[3] = obs_f;
+            out[4] = (state == S_JUMP);
+            out[5] = 1'b0;
+            out[6] = obs_f;
             out[7] = (cooldown_timer > 0);
         end
     end
