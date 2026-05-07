@@ -4,46 +4,57 @@ sections.
 
 You can also include images in this folder and reference them in the markdown. Each image must be less than
 512 kb in size, and the first 1024 characters of the combined markdown files are used for metadata extraction.
--->
+--->
 
 ## How it works
 
-Dino-7 brings the spirit of the classic Chrome Dinosaur endless runner to a single 7-segment display.
+Dino-7 is a minimalist endless runner inspired by the Chrome Dinosaur game, rendered on a single 7-segment display. The game uses a finite state machine with idle, run, jump, hit, and score-display behavior, plus pseudo-random obstacle generation and a retained high score.
 
-The game is driven by a **Finite State Machine (FSM)** with four states:
+### Game states
 
 | State | Description |
 |-------|-------------|
-| `RUN`   | Player is on the ground, obstacles move left |
-| `JUMP`  | Player is in the air for a fixed number of frames |
-| `HIT`   | Collision detected — display flashes error pattern |
-| `SCORE` | Shows final score (0–9) and waits for reset |
+| `S_IDLE`  | Shows the stored high score on the 7-segment display |
+| `S_RUN`   | Player is on the ground and obstacles advance |
+| `S_JUMP`  | Player is in the air for a short fixed jump time |
+| `S_HIT`   | Collision detected, all segments light up |
+| `S_SCORE` | Final score is shown, alternating with high score |
 
-### Display Mapping
+### Display mapping
 
-The 7-segment display acts as a side-scrolling game world:
+The 7-segment display is used as a tiny side-view game field with a horizontal obstacle flow:
 
-| Segment | Position | Meaning |
-|---------|----------|---------|
-| `d` (bottom) | Ground | Always on |
-| `e` (bottom-left) | Left | Player on the ground |
-| `b` (top-right) | Upper-right | Player jumping in the air |
-| `c` (bottom-right) | Far right | Obstacle spawning |
-| `g` (middle) | Mid | Obstacle approaching |
-| `f` (top-left) | Left | Obstacle in collision zone |
-| `dp` (decimal point) | — | Jump cooldown active |
+| Output | Segment | Meaning |
+|--------|---------|---------|
+| `uo[0]` | `a` | Obstacle far (spawning) |
+| `uo[1]` | `b` | Obstacle mid (approaching) |
+| `uo[2]` | `c` | Player on ground |
+| `uo[3]` | `d` | Obstacle has passed |
+| `uo[4]` | `e` | Player in air (jumping) |
+| `uo[5]` | `f` | Unused |
+| `uo[6]` | `g` | Obstacle close (collision zone) |
+| `uo[7]` | `dp` | Jump cooldown active / High score indicator |
 
-### Obstacle Generation
+### Obstacle movement
 
-An **8-bit Galois LFSR** generates pseudo-random obstacle spawn timing. At reset, bits `ui_in[7:2]` are loaded as an optional seed override to vary the obstacle pattern between games.
+Obstacles move through four visible phases across the display:
 
-### Speed Progression
+1. `a` — a new obstacle appears far away.
+2. `b` — the obstacle approaches the player.
+3. `g` — the obstacle reaches the close collision zone.
+4. `d` — the obstacle has passed.
 
-A **20-bit clock divider** scales the 25 MHz TinyTapeout clock down to a playable frame rate. Every 4 points scored, the divisor decreases, making obstacles move faster and the game harder.
+A 32-bit LFSR is used to generate pseudo-random obstacle spawn timing from the seed bits on `ui[7:4]`.
 
-### Collision Detection
+### Jump and score logic
 
-A collision occurs when an obstacle reaches segment `f` (the close zone) while the player is in `RUN` state (on the ground). This triggers the `HIT` state.
+The player is shown on `c` while running and on `e` while jumping. After a jump, the decimal point turns on briefly to indicate jump cooldown, so the jump button is temporarily blocked.
+
+If the player avoids an obstacle successfully, the score increments up to 9. The game speed increases gradually depending on the selected difficulty and score progression.
+
+### Score and high score
+
+In idle mode, the display shows the saved high score with the decimal point enabled. After a collision, the game briefly lights all segments, then shows the current score and alternates it with the stored high score.
 
 ## How to test
 
@@ -51,23 +62,25 @@ A collision occurs when an obstacle reaches segment `f` (the close zone) while t
 
 | Pin | Function |
 |-----|----------|
-| `ui_in[0]` | Jump button — press to jump (active high) |
-| `ui_in[1]` | Reset — press to restart after game over (active high) |
-| `ui_in[7:2]` | Optional LFSR seed — set before reset to change obstacle pattern |
+| `ui[0]` | Jump button (active high) |
+| `ui[1]` | Game reset (active high) |
+| `ui[3:2]` | Difficulty selector |
+| `ui[7:4]` | LFSR seed bits |
 
 ### Step-by-step
 
-1. Power on or assert `ui_in[1]` (reset) briefly to start the game.
-2. Watch segment `c` → `g` → `f` for incoming obstacles.
-3. Press `ui_in[0]` to jump when an obstacle is at `g` (mid position).
-4. The decimal point (`dp`) lights up during jump cooldown — you cannot jump again until it turns off.
-5. Score increases every time an obstacle passes without collision. Speed increases every 4 points.
-6. On collision, the display flashes an error pattern, then shows your score (0–9) on the display.
-7. Press `ui_in[1]` to reset and play again.
+1. Apply power and release `rst_n`.
+2. The display starts in idle mode and shows the high score with the decimal point on.
+3. Press `ui[0]` to start the game.
+4. Watch the obstacle move through `a` → `b` → `g` → `d`.
+5. Press `ui[0]` to jump before the obstacle reaches the close collision zone.
+6. During cooldown, the decimal point turns on.
+7. On collision, all segments light up, then the score screen appears.
+8. Press `ui[1]` to reset the game and return to idle.
 
-### External Hardware
+### External hardware
 
-- A **common-cathode 7-segment display** connected to `uo_out[7:0]`.
-- A **push button** on `ui_in[0]` with a pull-down resistor.
-- A **reset button** on `ui_in[1]` with a pull-down resistor.
-- No other external components required.
+- One common-cathode 7-segment display connected to `uo_out[7:0]`
+- One push button on `ui[0]` for jump
+- One push button on `ui[1]` for game reset
+- Optional switches on `ui[3:2]` and `ui[7:4]` for difficulty and seed selection

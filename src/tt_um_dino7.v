@@ -120,7 +120,7 @@ module tt_um_dino7 (
                         obs_g <= obs_c;
                         obs_c <= (lfsr[0] & lfsr[1] & lfsr[2]) & !obs_c & !obs_g;
 
-                        if (obs_g && state == S_RUN) begin
+                        if (obs_f && state == S_RUN) begin
                             state <= S_HIT;
                             blink_timer <= 5;
                             if (score > max_score)
