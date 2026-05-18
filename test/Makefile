@@ -29,6 +29,6 @@ endif
 
 VERILOG_SOURCES += $(PWD)/tb.v
 TOPLEVEL = tb
-COCOTB_TEST_MODULES = test
+COCOTB_TEST_MODULES = test,test_extra,test_gameplay
 
 include $(shell cocotb-config --makefiles)/Makefile.sim
